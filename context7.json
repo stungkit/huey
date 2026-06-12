@@ -1,0 +1,18 @@
+{
+  "$schema": "https://context7.com/schema/context7.json",
+  "projectTitle": "Huey",
+  "description": "a little task queue for python - redis, sqlite, file-system or in-memory storage; scheduling, retries, priorities, pipelines, locks.",
+  "folders": ["docs", "examples"],
+  "rules": [
+    "The installed consumer command is huey_consumer; huey_consumer.py only exists in a source checkout.",
+    "Huey shuts down gracefully on SIGINT; SIGTERM interrupts running tasks. Supervisors must be configured with stopsignal=INT (supervisord) or KillSignal=SIGINT (systemd).",
+    "Task priorities on redis require PriorityRedisHuey (redis 5.0+); plain RedisHuey raises an error for prioritized tasks. SqliteHuey supports priorities natively.",
+    "For tests, use immediate=True - it executes tasks synchronously through the real execution path with in-memory storage.",
+    "When running multiple consumers of one queue, pass -n/--no-periodic to all but one, or periodic tasks run once per consumer.",
+    "Task functions are regular def functions; async def execution is not supported. Use huey.contrib.asyncio.aget_result to await results from async code.",
+    "Django: configure via settings.HUEY and run manage.py run_huey. The django.tasks backend is huey.contrib.djhuey.tasks_backend.HueyBackend."
+  ],
+  "previousVersions": [
+    {"tag": "2.6.0"}
+  ]
+}
