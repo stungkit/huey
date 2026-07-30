@@ -3,6 +3,8 @@ Changelog
 
 ## master
 
+* Ensure traceback is stored properly for error results.
+
 [View commits](https://github.com/coleifer/huey/compare/3.3.0...master)
 
 ## 3.3.0
