@@ -14,6 +14,7 @@ from huey.tests.base import BaseTestCase
 if peewee is not None:
     from huey.contrib import stats as stats_mod
     from huey.contrib.stats import HueyEvent
+    from huey.contrib.stats import HueyInflight
     from huey.contrib.stats import HueyStats
 
 
@@ -57,6 +58,21 @@ class TestStatsInit(StatsTestCase):
         HueyStats(self.huey, self.db)
         self.assertFalse(self.db.is_closed())
         self.db.close()
+
+
+class TestStatsFlush(StatsTestCase):
+    def test_inflight_collapse(self):
+        stats = self.get_stats(flush_interval=60)
+        t1, t2 = self.task_a.s(), self.task_a.s()
+        self.huey._emit(S.SIGNAL_EXECUTING, t1)
+        self.huey._emit(S.SIGNAL_EXECUTING, t2)
+        self.huey._emit(S.SIGNAL_COMPLETE, t1)
+        stats._flush()
+
+        # All three events recorded, only the still-running task inflight.
+        self.assertEqual(HueyEvent.select().count(), 3)
+        self.assertEqual([r.task_id for r in HueyInflight.select()],
+                         [str(t2.id)])
 
 
 @unittest.skipIf(not hasattr(os, 'register_at_fork'), 'requires fork()')
@@ -119,6 +135,18 @@ class TestStatsFork(StatsTestCase):
         stats._flush()
         query = HueyEvent.select().where(HueyEvent.signal == S.SIGNAL_ENQUEUED)
         self.assertEqual(query.count(), 1)
+
+    def test_shutdown_hook_flushes_in_child(self):
+        # flush_interval=60 so only the shutdown hook can have written it.
+        self.get_stats(flush_interval=60)
+
+        def child():
+            self.huey._emit(S.SIGNAL_EXECUTING, self.task_a.s())
+            for hook in self.huey._shutdown.values():
+                hook()
+            return 0 if HueyEvent.select().count() == 1 else 1
+
+        self.assertEqual(self.fork_child(child), 0)
 
     def test_closed_recorder_not_revived(self):
         stats = self.get_stats()

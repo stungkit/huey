@@ -95,6 +95,8 @@ class HueyStats(object):
             return
         self._connected = True
         self.huey.signal()(self._on_signal)
+        # Worker processes exit via os._exit, which skips atexit-based flush.
+        self.huey.on_shutdown('huey_stats_flush')(self._flush)
         if hasattr(os, 'register_at_fork'):
             os.register_at_fork(after_in_child=self._reset_after_fork)
         self._start_writer()
@@ -161,19 +163,25 @@ class HueyStats(object):
             self._buf = []
         if not batch:
             return
+        # One inflight op per task, applied in task_id order, so concurrent
+        # writers acquire row locks identically and cannot deadlock.
+        inflight = {}
+        for row in batch:
+            if row['signal'] == S.SIGNAL_EXECUTING:
+                inflight[row['task_id']] = row
+            elif row['signal'] in TERMINAL:
+                inflight[row['task_id']] = None
         try:
             with self.db.atomic():
                 HueyEvent.insert_many(batch).execute()
-                for row in batch:
-                    if row['signal'] == S.SIGNAL_EXECUTING:
-                        HueyInflight.delete().where(
-                            HueyInflight.task_id == row['task_id']).execute()
+                for task_id in sorted(inflight):
+                    row = inflight[task_id]
+                    HueyInflight.delete().where(
+                        HueyInflight.task_id == task_id).execute()
+                    if row is not None:
                         HueyInflight.insert(
-                            task_id=row['task_id'], queue=row['queue'],
+                            task_id=task_id, queue=row['queue'],
                             task=row['task'], started=row['ts']).execute()
-                    elif row['signal'] in TERMINAL:
-                        HueyInflight.delete().where(
-                            HueyInflight.task_id == row['task_id']).execute()
         except Exception:
             return
         self._maybe_prune()
