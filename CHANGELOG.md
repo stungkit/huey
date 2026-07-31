@@ -3,6 +3,10 @@ Changelog
 
 ## master
 
+[View commits](https://github.com/coleifer/huey/compare/3.3.1...master)
+
+## 3.3.1
+
 * Ensure traceback is stored properly for error results.
 * Restart the stats recorder in forked children via `os.register_at_fork`.
   Previously the writer thread existed only in the process that called
@@ -11,7 +15,7 @@ Changelog
   workers but never wrote them, and the dashboard showed tasks stuck on
   "enqueued".
 
-[View commits](https://github.com/coleifer/huey/compare/3.3.0...master)
+[View commits](https://github.com/coleifer/huey/compare/3.3.0...3.3.1)
 
 ## 3.3.0
 
