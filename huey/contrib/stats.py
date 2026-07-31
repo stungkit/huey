@@ -1,4 +1,5 @@
 import atexit
+import os
 import threading
 import time
 
@@ -81,16 +82,43 @@ class HueyStats(object):
         if database.obj is None:
             database.initialize(self.db)
         if create_tables:
+            # The writer thread opens its own connection. Close the one
+            # create_tables opens, so forked children do not inherit a live
+            # socket. Leave a connection the caller opened alone.
+            was_closed = self.db.is_closed()
             self.db.create_tables(MODELS, safe=True)
+            if was_closed:
+                self.db.close()
 
     def connect(self):
         if self._connected:
             return
         self._connected = True
         self.huey.signal()(self._on_signal)
+        if hasattr(os, 'register_at_fork'):
+            os.register_at_fork(after_in_child=self._reset_after_fork)
+        self._start_writer()
+        atexit.register(self.close)
+
+    def _start_writer(self):
         self._writer = threading.Thread(target=self._writer_loop, daemon=True)
         self._writer.start()
-        atexit.register(self.close)
+
+    def _reset_after_fork(self):
+        # Runs in the forked child while it is still single-threaded. The
+        # writer thread exists only in the parent, along with any locks it
+        # held at fork time. Rows buffered before the fork are the parent's
+        # to write. The inherited db connection shares a socket with the
+        # parent, so discard its state rather than close it.
+        if self._stop.is_set():
+            return
+        self._lock = threading.Lock()
+        self._stop = threading.Event()
+        self._wake = threading.Event()
+        self._buf = []
+        self._start = {}
+        self.db._state.reset()
+        self._start_writer()
 
     def _on_signal(self, signal, task, exc=None):
         try:

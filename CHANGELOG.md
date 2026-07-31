@@ -4,6 +4,12 @@ Changelog
 ## master
 
 * Ensure traceback is stored properly for error results.
+* Restart the stats recorder in forked children via `os.register_at_fork`.
+  Previously the writer thread existed only in the process that called
+  `enable_stats()`, so a consumer w/ `worker_type='process'` (or a preforking
+  web server that loads the app before forking) buffered task events in its
+  workers but never wrote them, and the dashboard showed tasks stuck on
+  "enqueued".
 
 [View commits](https://github.com/coleifer/huey/compare/3.3.0...master)
 
