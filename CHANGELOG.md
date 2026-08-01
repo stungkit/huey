@@ -3,6 +3,10 @@ Changelog
 
 ## master
 
+[View commits](https://github.com/coleifer/huey/compare/3.3.2...master)
+
+## 3.3.2
+
 * Flush buffered stats in the worker shutdown hook. Fixes issue where recycled
   workers might drop some writes.
 * Consolidate the stats flush to one inflight-table update per task, applied
@@ -13,7 +17,7 @@ Changelog
   wedging every process using that storage path. `FileHuey` with the default
   thread workers deadlocked on first contention.
 
-[View commits](https://github.com/coleifer/huey/compare/3.3.1...master)
+[View commits](https://github.com/coleifer/huey/compare/3.3.1...3.3.2)
 
 ## 3.3.1
 
