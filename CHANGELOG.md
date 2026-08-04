@@ -3,10 +3,15 @@ Changelog
 
 ## master
 
+[View commits](https://github.com/coleifer/huey/compare/3.3.3...master)
+
+## 3.3.3
+
 * Forward the Django database `OPTIONS` when setting up the stats recorder
   connection. Fixes / replaces #907.
+* Remove accidental `sqlite3` access at module scope, #908.
 
-[View commits](https://github.com/coleifer/huey/compare/3.3.2...master)
+[View commits](https://github.com/coleifer/huey/compare/3.3.2...3.3.3)
 
 ## 3.3.2
 
