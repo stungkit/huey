@@ -3,6 +3,9 @@ Changelog
 
 ## master
 
+* Forward the Django database `OPTIONS` when setting up the stats recorder
+  connection. Fixes / replaces #907.
+
 [View commits](https://github.com/coleifer/huey/compare/3.3.2...master)
 
 ## 3.3.2
