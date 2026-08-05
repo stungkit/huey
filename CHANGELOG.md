@@ -3,6 +3,10 @@ Changelog
 
 ## master
 
+[View commits](https://github.com/coleifer/huey/compare/3.3.4...master)
+
+## 3.3.4
+
 * Use `DoubleField` for the stats `ts`, `duration` and `started` columns.
   On PG & MySQL the old `FloatField` was a 32-bit-shitter which lost a lot of
   seconds of precision. Existing PG/MySQL tables will need to run the SQL below
@@ -21,7 +25,7 @@ alter table `huey_event` modify `duration` double;
 alter table `huey_inflight` modify `started` double not null;
 ```
 
-[View commits](https://github.com/coleifer/huey/compare/3.3.3...master)
+[View commits](https://github.com/coleifer/huey/compare/3.3.3...3.3.4)
 
 ## 3.3.3
 
