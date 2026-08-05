@@ -21,12 +21,12 @@ class BaseModel(peewee.Model):
 
 
 class HueyEvent(BaseModel):
-    ts = peewee.FloatField(index=True)
+    ts = peewee.DoubleField(index=True)
     queue = peewee.CharField(index=True)
     task_id = peewee.CharField()
     task = peewee.CharField(index=True)
     signal = peewee.CharField()
-    duration = peewee.FloatField(null=True)
+    duration = peewee.DoubleField(null=True)
     error = peewee.TextField(null=True)
     args = peewee.TextField(null=True)
 
@@ -38,7 +38,7 @@ class HueyInflight(BaseModel):
     task_id = peewee.CharField(primary_key=True)
     queue = peewee.CharField(index=True)
     task = peewee.CharField()
-    started = peewee.FloatField()
+    started = peewee.DoubleField()
 
     class Meta:
         table_name = 'huey_inflight'

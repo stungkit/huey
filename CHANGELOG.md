@@ -3,6 +3,24 @@ Changelog
 
 ## master
 
+* Use `DoubleField` for the stats `ts`, `duration` and `started` columns.
+  On PG & MySQL the old `FloatField` was a 32-bit-shitter which lost a lot of
+  seconds of precision. Existing PG/MySQL tables will need to run the SQL below
+  to migrate OR just drop the tables and allow them to be rebuilt next run.
+  SQLite was not affected. Fixes #909.
+
+```sql
+-- Postgres
+alter table "huey_event" alter column "ts" type double precision;
+alter table "huey_event" alter column "duration" type double precision;
+alter table "huey_inflight" alter column "started" type double precision;
+
+-- MySQL
+alter table `huey_event` modify `ts` double not null;
+alter table `huey_event` modify `duration` double;
+alter table `huey_inflight` modify `started` double not null;
+```
+
 [View commits](https://github.com/coleifer/huey/compare/3.3.3...master)
 
 ## 3.3.3
