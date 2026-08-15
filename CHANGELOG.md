@@ -3,6 +3,9 @@ Changelog
 
 ## master
 
+* Better handling for `timeout`, `locked`, `rate-limited` and `retrying` in
+  stats recorder.
+
 [View commits](https://github.com/coleifer/huey/compare/3.3.4...master)
 
 ## 3.3.4

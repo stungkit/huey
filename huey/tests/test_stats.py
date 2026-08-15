@@ -74,6 +74,35 @@ class TestStatsFlush(StatsTestCase):
         self.assertEqual([r.task_id for r in HueyInflight.select()],
                          [str(t2.id)])
 
+    def test_attempt_enders_clear_inflight(self):
+        stats = self.get_stats(flush_interval=60)
+        signals = (S.SIGNAL_TIMEOUT, S.SIGNAL_LOCKED, S.SIGNAL_RATE_LIMITED,
+                   S.SIGNAL_RETRYING)
+        for signal in signals:
+            t = self.task_a.s()
+            self.huey._emit(S.SIGNAL_EXECUTING, t)
+            self.huey._emit(signal, t)
+        stats._flush()
+
+        self.assertEqual(HueyInflight.select().count(), 0)
+        rows = dict((e.signal, e.duration) for e in HueyEvent.select()
+                    .where(HueyEvent.signal != S.SIGNAL_EXECUTING))
+        self.assertEqual(sorted(rows), sorted(signals))
+        self.assertTrue(all(d is not None for d in rows.values()))
+
+    def test_error_then_retry_duration_attributed_once(self):
+        stats = self.get_stats(flush_interval=60)
+        t = self.task_a.s()
+        self.huey._emit(S.SIGNAL_EXECUTING, t)
+        self.huey._emit(S.SIGNAL_ERROR, t)
+        self.huey._emit(S.SIGNAL_RETRYING, t)
+        stats._flush()
+
+        self.assertEqual(HueyInflight.select().count(), 0)
+        rows = dict((e.signal, e.duration) for e in HueyEvent.select())
+        self.assertTrue(rows[S.SIGNAL_ERROR] is not None)
+        self.assertTrue(rows[S.SIGNAL_RETRYING] is None)
+
 
 @unittest.skipIf(not hasattr(os, 'register_at_fork'), 'requires fork()')
 class TestStatsFork(StatsTestCase):

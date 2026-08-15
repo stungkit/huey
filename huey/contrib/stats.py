@@ -8,9 +8,12 @@ import peewee
 from huey import signals as S
 
 
+# Signals for when a task stops running. Task itself may still be retried, but
+# it will be re-enqueued in that case.
 TERMINAL = frozenset((
     S.SIGNAL_COMPLETE, S.SIGNAL_ERROR, S.SIGNAL_CANCELED, S.SIGNAL_INTERRUPTED,
-    S.SIGNAL_EXPIRED, S.SIGNAL_REVOKED))
+    S.SIGNAL_EXPIRED, S.SIGNAL_REVOKED, S.SIGNAL_TIMEOUT, S.SIGNAL_LOCKED,
+    S.SIGNAL_RATE_LIMITED, S.SIGNAL_RETRYING))
 
 database = peewee.DatabaseProxy()
 
