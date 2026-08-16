@@ -52,8 +52,8 @@ class HueyStatsConfig(AppConfig):
     def ready(self):
         from huey.contrib.djhuey import HUEY
         from huey.contrib.stats import enable_stats
-        db, options = stats_database()
         try:
+            db, options = stats_database()
             enable_stats(HUEY, db, **options)
         except Exception:
             logger.exception('huey stats recorder failed to start.')
