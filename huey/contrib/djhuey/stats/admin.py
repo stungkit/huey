@@ -1,4 +1,4 @@
-import time
+import datetime
 
 from django.contrib import admin
 from django.core.exceptions import PermissionDenied
@@ -6,6 +6,7 @@ from django.http import HttpResponseRedirect
 from django.template.response import TemplateResponse
 from django.urls import path
 from django.urls import reverse
+from django.utils import timezone
 
 from huey.contrib.djhuey.stats.models import HueyDashboard
 from huey.contrib.djhuey.stats.models import HueyEvent
@@ -36,7 +37,8 @@ class HueyEventAdmin(admin.ModelAdmin):
         return False
 
     def event_time(self, obj):
-        return time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(obj.ts))
+        dt = datetime.datetime.fromtimestamp(obj.ts, datetime.timezone.utc)
+        return timezone.localtime(dt).strftime('%Y-%m-%d %H:%M:%S')
     event_time.short_description = 'time'
     event_time.admin_order_field = 'ts'
 
