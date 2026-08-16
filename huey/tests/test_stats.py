@@ -90,7 +90,9 @@ class TestStatsFlush(StatsTestCase):
                          [str(t2.id)])
 
     def test_flush_large_batch(self):
-        stats = self.get_stats(flush_interval=60)
+        # flush_max above the batch size, so the writer thread never wakes
+        # to race this thread's flush.
+        stats = self.get_stats(flush_interval=60, flush_max=1000)
         for i in range(250):
             self.huey._emit(S.SIGNAL_ENQUEUED, self.task_a.s())
         stats._flush()
