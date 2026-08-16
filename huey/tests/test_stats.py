@@ -60,6 +60,21 @@ class TestStatsInit(StatsTestCase):
         self.db.close()
 
 
+class TestResolveDb(StatsTestCase):
+    def test_proxy_unwrap(self):
+        proxy = peewee.DatabaseProxy()
+        proxy.initialize(self.db)
+        self.assertTrue(stats_mod._resolve_db(proxy) is self.db)
+
+        class Wrapper(object):
+            database = proxy
+        self.assertTrue(stats_mod._resolve_db(Wrapper()) is self.db)
+
+        self.assertRaises(TypeError, stats_mod._resolve_db, object())
+        self.assertRaises(TypeError, stats_mod._resolve_db,
+                          peewee.DatabaseProxy())
+
+
 class TestStatsFlush(StatsTestCase):
     def test_inflight_collapse(self):
         stats = self.get_stats(flush_interval=60)
@@ -73,6 +88,13 @@ class TestStatsFlush(StatsTestCase):
         self.assertEqual(HueyEvent.select().count(), 3)
         self.assertEqual([r.task_id for r in HueyInflight.select()],
                          [str(t2.id)])
+
+    def test_flush_large_batch(self):
+        stats = self.get_stats(flush_interval=60)
+        for i in range(250):
+            self.huey._emit(S.SIGNAL_ENQUEUED, self.task_a.s())
+        stats._flush()
+        self.assertEqual(HueyEvent.select().count(), 250)
 
     def test_attempt_enders_clear_inflight(self):
         stats = self.get_stats(flush_interval=60)

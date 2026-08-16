@@ -1,4 +1,5 @@
 import atexit
+import logging
 import os
 import threading
 import time
@@ -16,6 +17,8 @@ TERMINAL = frozenset((
     S.SIGNAL_RATE_LIMITED, S.SIGNAL_RETRYING))
 
 database = peewee.DatabaseProxy()
+
+logger = logging.getLogger('huey.stats')
 
 
 class BaseModel(peewee.Model):
@@ -50,12 +53,15 @@ class HueyInflight(BaseModel):
 MODELS = (HueyEvent, HueyInflight)
 
 
+def _unwrap_proxy(obj):
+    return obj.obj if isinstance(obj, peewee.Proxy) else obj
+
 def _resolve_db(db):
-    if isinstance(db, peewee.Database):
-        return db
-    inner = getattr(db, 'database', None)  # flask_peewee.db.Database wrapper.
-    if isinstance(inner, peewee.Database):
-        return inner
+    obj = _unwrap_proxy(db)
+    if not isinstance(obj, peewee.Database):
+        obj = _unwrap_proxy(getattr(obj, 'database', None))
+    if isinstance(obj, peewee.Database):
+        return obj
     raise TypeError('Expected a peewee Database or flask_peewee Database, got '
                     '%r' % (db,))
 
@@ -176,7 +182,8 @@ class HueyStats(object):
                 inflight[row['task_id']] = None
         try:
             with self.db.atomic():
-                HueyEvent.insert_many(batch).execute()
+                for chunk in peewee.chunked(batch, 100):
+                    HueyEvent.insert_many(chunk).execute()
                 for task_id in sorted(inflight):
                     row = inflight[task_id]
                     HueyInflight.delete().where(
@@ -186,6 +193,8 @@ class HueyStats(object):
                             task_id=task_id, queue=row['queue'],
                             task=row['task'], started=row['ts']).execute()
         except Exception:
+            logger.exception('stats flush failed, dropping %s events.',
+                             len(batch))
             return
         self._maybe_prune()
 
@@ -209,7 +218,7 @@ class HueyStats(object):
                  .where(HueyInflight.queue == self.name,
                         HueyInflight.started < now - 21600).execute())
         except Exception:
-            pass
+            logger.exception('stats prune failed.')
         if len(self._start) > 10000:
             self._start.clear()
 
