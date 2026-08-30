@@ -424,6 +424,12 @@ configuration. The recorder uses `peewee <https://docs.peewee-orm.com/>`_ for
 storage, creating its tables automatically in ``DATABASES['default']`` (there
 are no migrations to run) and pruning old rows as new events are written.
 
+The database is resolved when the first event is recorded or read, so a
+process that does neither (``migrate``, ``collectstatic``, ``shell``) never
+opens a connection. Resolving it then rather than at start-up also means a
+test run records against the test database, not the one named in your
+settings.
+
 The admin index gets a *Huey* section with two entries:
 
 * **Dashboard**: live queue depths, a throughput chart, per-task statistics,

@@ -45,19 +45,76 @@ class StatsTestCase(BaseTestCase):
     def get_stats(self, **kwargs):
         self.stats = HueyStats(self.huey, self.db, **kwargs)
         self.stats.connect()
+        self.stats._bind()  # Resolve up-front, as a recording process would.
         return self.stats
 
 
 class TestStatsInit(StatsTestCase):
     def test_init_closes_own_connection(self):
-        HueyStats(self.huey, self.db)
+        HueyStats(self.huey, self.db)._bind()
         self.assertTrue(self.db.is_closed())
 
     def test_init_preserves_open_connection(self):
         self.db.connect()
-        HueyStats(self.huey, self.db)
+        HueyStats(self.huey, self.db)._bind()
         self.assertFalse(self.db.is_closed())
         self.db.close()
+
+    def test_db_resolved_on_first_use(self):
+        stats = HueyStats(self.huey, self.db)
+        self.assertTrue(stats._db is None)
+        self.assertFalse(self.db.table_exists('huey_event'))
+
+        self.assertTrue(stats.db is self.db)
+        self.assertTrue(self.db.table_exists('huey_event'))
+
+    def test_db_source_may_be_callable(self):
+        calls = []
+
+        def get_db():
+            calls.append(1)
+            return self.db
+
+        stats = HueyStats(self.huey, get_db)
+        self.assertEqual(calls, [])
+
+        self.assertTrue(stats.db is self.db)
+        self.assertTrue(stats.db is self.db)  # Resolved once, then cached.
+        self.assertEqual(calls, [1])
+
+    def test_unresolved_db_survives_close(self):
+        # Nothing was recorded, so shutdown must not connect just to close.
+        stats = HueyStats(self.huey, self.db)
+        stats.connect()
+        stats.close()
+        self.assertTrue(stats._db is None)
+
+    def test_db_pinned_at_first_event(self):
+        # The django test runner swaps in a test database and restores the
+        # original when it finishes. Rows are buffered and written after that,
+        # so the database is chosen when the first event is recorded, not when
+        # the batch is flushed.
+        other_file = self.db_file + '-other'
+        if os.path.exists(other_file):
+            os.unlink(other_file)
+        other = peewee.SqliteDatabase(other_file)
+        current = [self.db]
+        stats_mod.database.obj = None  # Let the recorder bind the proxy.
+
+        self.stats = HueyStats(self.huey, lambda: current[0],
+                               flush_interval=60)
+        self.stats.connect()
+        self.huey._emit(S.SIGNAL_ENQUEUED, self.task_a.s())
+        self.assertTrue(stats_mod.database.obj is self.db)
+
+        current[0] = other
+        self.stats._flush()
+
+        self.assertTrue(stats_mod.database.obj is self.db)
+        self.assertEqual(HueyEvent.select().count(), 1)
+        self.assertFalse(other.table_exists('huey_event'))
+        other.close()
+        os.unlink(other_file)
 
 
 class TestResolveDb(StatsTestCase):
