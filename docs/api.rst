@@ -892,7 +892,10 @@ Huey object
         :param str lock_name: Name to use for the lock.
         :param int ttl: Seconds after which the lock expires on its own, so a
             killed worker cannot hold it forever. Supported by the memory and
-            redis storages, others raise ``NotImplementedError``.
+            redis storages, others raise ``NotImplementedError``. With
+            :py:class:`RedisStorage` the server must support hash-field TTL
+            (redis 7.4+ or valkey 9+). :py:class:`RedisExpireStorage` works
+            on any version.
         :returns: :py:class:`TaskLock` instance, which can be used as a
             decorator or context-manager.
 
@@ -1080,7 +1083,9 @@ Huey object
         :param key: key to store data under.
         :param value: arbitrary data to store.
         :param int ttl: seconds until the key expires. Supported by the memory
-            and redis storages, others raise ``NotImplementedError``.
+            and redis storages, others raise ``NotImplementedError``. With
+            :py:class:`RedisStorage` the server must support hash-field TTL
+            (redis 7.4+ or valkey 9+).
         :returns: boolean indicating whether the value was stored. Returns
             ``False`` if the key already exists.
 

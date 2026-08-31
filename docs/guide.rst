@@ -951,7 +951,8 @@ If the task is configured to be retried, then it will be retried normally.
 
 Pass ``ttl`` (seconds) so a lock left behind by a killed worker expires on its
 own. The memory and redis storages support it, others raise
-``NotImplementedError``.
+``NotImplementedError``. With :py:class:`RedisHuey` the server must support
+hash-field TTL (redis 7.4+ or valkey 9+).
 
 Examples:
 

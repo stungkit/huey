@@ -239,7 +239,9 @@ class BaseStorage(object):
         :param bytes key: Key to check/set.
         :param bytes value: Arbitrary data.
         :param int ttl: Seconds until the key expires. Supported by the memory
-            and redis storages, others raise ``NotImplementedError``.
+            and redis storages, others raise ``NotImplementedError``. With
+            ``RedisStorage`` the server must support hash-field TTL (redis
+            7.4+ or valkey 9+). ``RedisExpireStorage`` works on any version.
         :return: Boolean whether key/value was set.
         """
         if ttl is not None:
@@ -519,6 +521,23 @@ class RedisStorage(BaseStorage):
         return tuple(int(i) if i.isdigit() else 999
                      for i in version.split('.'))
 
+    @cached_property
+    def supports_hash_ttl(self):
+        # HEXPIRE needs redis 7.4+ or valkey 9+. Valkey reports redis_version
+        # 7.2, so its own version field is checked separately.
+        if not hasattr(self.conn, 'hexpire'):
+            return False
+        info = self.conn.info('server')
+        for key, minver in (('redis_version', (7, 4)),
+                            ('valkey_version', (9,))):
+            try:
+                version = tuple(int(p) for p in str(info[key]).split('.')[:2])
+            except (KeyError, ValueError):
+                continue
+            if version >= minver:
+                return True
+        return False
+
     def clean_name(self, name):
         return re.sub('[^A-Za-z0-9_]', '', name)
 
@@ -637,6 +656,9 @@ class RedisStorage(BaseStorage):
         return self.conn.hexists(self.result_key, key)
 
     def put_if_empty(self, key, value, ttl=None):
+        if ttl is not None and not self.supports_hash_ttl:
+            raise NotImplementedError('ttl requires hash-field TTL support '
+                                      '(redis 7.4+ or valkey 9+).')
         if not self.conn.hsetnx(self.result_key, key, value):
             return False
         if ttl is not None:

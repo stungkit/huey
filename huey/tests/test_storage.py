@@ -284,6 +284,18 @@ class TestRedisStorage(StorageTests, BaseTestCase):
     def get_huey(self):
         return RedisHuey(utc=False)
 
+    @property
+    def supports_ttl(self):
+        return self.s.supports_hash_ttl
+
+    def test_put_if_empty_ttl_unsupported(self):
+        self.s.supports_hash_ttl = False
+        self.assertRaises(NotImplementedError, self.s.put_if_empty,
+                          b'k1', b'v1', 1)
+        self.assertFalse(self.s.has_data_for_key(b'k1'))
+        self.assertTrue(self.s.put_if_empty(b'k1', b'v1'))
+        self.assertEqual(self.s.peek_data(b'k1'), b'v1')
+
     def test_conflicting_init_args(self):
         options = {'host': 'localhost', 'url': 'redis://localhost',
                    'connection_pool': ConnectionPool()}
