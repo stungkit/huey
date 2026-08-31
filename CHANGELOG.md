@@ -52,6 +52,8 @@ Changelog
   linger until expiry on `RedisExpireStorage`.
 * Write the error of a failed pipeline stage to every skipped downstream
   stage, so their `Result` handles raise instead of blocking.
+* Skip messages that fail to deserialize in `Huey.pending()` and
+  `Huey.scheduled()`, logging the error, as `read_schedule()` already does.
 
 [View commits](https://github.com/coleifer/huey/compare/3.3.4...master)
 

@@ -737,14 +737,15 @@ class Huey(object):
     def read_schedule(self, timestamp=None):
         if timestamp is None:
             timestamp = self._get_timestamp()
+        return self._deserialize_all(self.storage.read_schedule(timestamp))
+
+    def _deserialize_all(self, messages):
         accum = []
-        for msg in self.storage.read_schedule(timestamp):
+        for msg in messages:
             try:
-                task = self.deserialize_task(msg)
+                accum.append(self.deserialize_task(msg))
             except Exception:
-                logger.exception('Unable to deserialize scheduled task.')
-            else:
-                accum.append(task)
+                logger.exception('Unable to deserialize task.')
         return accum
 
     def read_periodic(self, timestamp):
@@ -759,15 +760,13 @@ class Huey(object):
         return task.eta is None or task.eta <= timestamp
 
     def pending(self, limit=None):
-        return [self.deserialize_task(task)
-                for task in self.storage.enqueued_items(limit)]
+        return self._deserialize_all(self.storage.enqueued_items(limit))
 
     def pending_count(self):
         return self.storage.queue_size()
 
     def scheduled(self, limit=None):
-        return [self.deserialize_task(task)
-                for task in self.storage.scheduled_items(limit)]
+        return self._deserialize_all(self.storage.scheduled_items(limit))
 
     def scheduled_count(self):
         return self.storage.schedule_size()

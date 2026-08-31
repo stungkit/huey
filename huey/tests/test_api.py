@@ -1233,6 +1233,28 @@ class TestQueue(BaseTestCase):
         self.assertEqual(self.huey.result_count(), 0)
         self.assertEqual(self.huey.scheduled_count(), 0)
 
+    def test_pending_scheduled_unregistered(self):
+        @self.huey.task()
+        def task_a(n):
+            return n
+
+        @self.huey.task()
+        def task_b(n):
+            return n
+
+        sa = task_a.schedule(3, delay=60)
+        sb = task_b.schedule(4, delay=60)
+        self.huey.execute(self.huey.dequeue())
+        self.huey.execute(self.huey.dequeue())
+        ra = task_a(1)
+        rb = task_b(2)
+        self.assertEqual(len(self.huey), 2)
+        self.assertEqual(self.huey.scheduled_count(), 2)
+
+        task_b.unregister()
+        self.assertEqual([t.id for t in self.huey.pending()], [ra.id])
+        self.assertEqual([t.id for t in self.huey.scheduled()], [sa.id])
+
     def test_read_periodic(self):
         @self.huey.periodic_task(crontab(minute='*/15', hour='9-17'))
         def work():
