@@ -37,6 +37,7 @@ from huey.storage import RedisStorage
 from huey.storage import SqliteStorage
 from huey.utils import ChordConfig
 from huey.utils import Error
+from huey.utils import SKIPPED
 from huey.utils import noop_context
 from huey.utils import normalize_expire_time
 from huey.utils import normalize_time
@@ -424,11 +425,11 @@ class Huey(object):
         elif self.is_revoked(task, timestamp, False):
             logger.warning('Task %s was revoked, not executing', task)
             self._emit(S.SIGNAL_REVOKED, task)
-            self._abort_chord_member(task, None)
+            self._abort_chord_member(task, SKIPPED)
         elif task.expires_resolved and task.expires_resolved < timestamp:
             logger.info('Task %s expired, not executing.', task)
             self._emit(S.SIGNAL_EXPIRED, task)
-            self._abort_chord_member(task, None)
+            self._abort_chord_member(task, SKIPPED)
         else:
             logger.info('Executing %s', task)
             self._emit(S.SIGNAL_EXECUTING, task)
@@ -440,7 +441,7 @@ class Huey(object):
                 self._run_pre_execute(task)
             except CancelExecution:
                 self._emit(S.SIGNAL_CANCELED, task)
-                self._abort_chord_member(task, None)
+                self._abort_chord_member(task, SKIPPED)
                 return
 
         start = time.monotonic()
@@ -521,6 +522,10 @@ class Huey(object):
             if surface_error:
                 error_data = self.build_error_result(task, exception)
                 self.put_result(task.id, Error(error_data))
+                next_task = task.on_complete if not task.retries else None
+                while next_task is not None:
+                    self.put_result(next_task.id, Error(error_data))
+                    next_task = next_task.on_complete
             elif exception is None and (task_value is not None or
                                         self.store_none):
                 self.put_result(task.id, task_value)
@@ -549,7 +554,8 @@ class Huey(object):
             if task.chord_config is not None:
                 self._check_chord(task.chord_config, task_value)
         elif not task.retries:
-            self._abort_chord_member(task, exception)
+            error = Error(self.build_error_result(task, exception))
+            self._abort_chord_member(task, error)
 
         if exception is not None and task.retries:
             self._emit(S.SIGNAL_RETRYING, task)
@@ -574,11 +580,13 @@ class Huey(object):
         if self.storage.incr(chord_key) == cc.size:
             self.storage.delete_counter(chord_key)
 
-            # Destructively read raw results w/o raising errors for exceptions.
+            # Read raw results w/o raising for errors, then delete explicitly
+            # as expiring storages implement pop_data as a peek.
             results = []
             for idx in range(cc.size):
-                result = self.get('chord:%s:%s' % (cc.cid, idx))
-                results.append(result)
+                key = 'chord:%s:%s' % (cc.cid, idx)
+                results.append(self.get(key, peek=True))
+                self.delete(key)
 
             callback = cc.callback
             callback.extend_data((results,))

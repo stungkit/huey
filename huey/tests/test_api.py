@@ -21,6 +21,8 @@ from huey.exceptions import TaskException
 from huey.exceptions import TaskTimeout
 from huey.serializer import SignedSerializer
 from huey.tests.base import BaseTestCase
+from huey.utils import Error
+from huey.utils import SKIPPED
 
 
 class TestError(Exception):
@@ -1665,7 +1667,7 @@ class TestChordPrimitive(BaseTestCase):
 
         @self.huey.task()
         def agg(ns):
-            if any(isinstance(n, Exception) for n in ns):
+            if any(isinstance(n, Error) for n in ns):
                 return -1
             return sum(ns)
 
@@ -1830,8 +1832,8 @@ class TestChordPrimitive(BaseTestCase):
         # The callback still fires, with a placeholder result contributed
         # for the revoked task.
         self.assertEqual(len(self.huey), 1)
-        self.assertEqual(self.execute_next(), [1, None, 3])
-        self.assertEqual(r(), [1, None, 3])
+        self.assertEqual(self.execute_next(), [1, SKIPPED, 3])
+        self.assertEqual(r(), [1, SKIPPED, 3])
 
     def test_chord_expired_member(self):
         @self.huey.task()
@@ -1854,8 +1856,52 @@ class TestChordPrimitive(BaseTestCase):
         # The callback still fires, with a placeholder result contributed
         # for the expired task.
         self.assertEqual(len(self.huey), 1)
-        self.assertEqual(self.execute_next(), [1, None, 3])
-        self.assertEqual(r(), [1, None, 3])
+        self.assertEqual(self.execute_next(), [1, SKIPPED, 3])
+        self.assertEqual(r(), [1, SKIPPED, 3])
+
+    def test_chord_failed_and_revoked_members(self):
+        @self.huey.task()
+        def prod(n):
+            if n is None:
+                raise TestError('bad')
+            return n + 1
+
+        @self.huey.task()
+        def agg(ns):
+            return ns
+
+        c = chord([prod.s(1), prod.s(None), prod.s(2)], agg.s())
+        r = self.huey.enqueue(c)
+        list(r.results)[2].revoke()
+
+        self.assertEqual(self.execute_next(), 2)
+        self.assertTrue(self.execute_next() is None)
+        self.assertTrue(self.execute_next() is None)
+        self.assertEqual(len(self.huey), 1)
+
+        v1, err, skipped = self.execute_next()
+        self.assertEqual(v1, 2)
+        self.assertTrue(isinstance(err, Error))
+        self.assertEqual(err.metadata['error'], 'TestError(bad)')
+        self.assertTrue(skipped is SKIPPED)
+        self.assertEqual(r(), [2, err, SKIPPED])
+
+    def test_chord_bookkeeping_cleared(self):
+        @self.huey.task()
+        def prod(n):
+            return n
+
+        @self.huey.task()
+        def agg(ns):
+            return ns
+
+        r = self.huey.enqueue(chord([prod.s(1), prod.s(2)], agg.s()))
+        for _ in range(3):
+            self.execute_next()
+        self.assertEqual(r(), [1, 2])
+        self.assertEqual(r.results(), [1, 2])
+        self.assertEqual(self.huey.storage._counters, {})
+        self.assertEqual(self.huey.result_count(), 0)
 
     def test_chord_member_retry_then_success(self):
         # A chord member that fails once, then succeeds on retry, should
@@ -1980,7 +2026,8 @@ class TestChordPrimitive(BaseTestCase):
 
         res = result()
         self.assertEqual(res[0], 1)
-        self.assertTrue(isinstance(res[1], TestError))
+        self.assertTrue(isinstance(res[1], Error))
+        self.assertEqual(res[1].metadata['error'], 'TestError(bad)')
 
     def test_chord_pipeline_member_tail_fails(self):
         @self.huey.task()
@@ -2009,8 +2056,8 @@ class TestChordPrimitive(BaseTestCase):
         self.execute_next()
 
         result = r()
-        self.assertTrue(isinstance(result[0], TestError))
-        self.assertTrue(isinstance(result[1], TestError))
+        self.assertTrue(isinstance(result[0], Error))
+        self.assertTrue(isinstance(result[1], Error))
 
     def test_chord_pipeline_member_head_fails(self):
         @self.huey.task()
@@ -2038,8 +2085,8 @@ class TestChordPrimitive(BaseTestCase):
         self.execute_next()
 
         result = r()
-        self.assertTrue(isinstance(result[0], TestError))
-        self.assertTrue(isinstance(result[1], TestError))
+        self.assertTrue(isinstance(result[0], Error))
+        self.assertTrue(isinstance(result[1], Error))
 
     def test_chord_pipeline_member_head_revoked(self):
         @self.huey.task()
@@ -2064,8 +2111,8 @@ class TestChordPrimitive(BaseTestCase):
         self.assertEqual(self.execute_next(), 4)
 
         self.assertEqual(len(self.huey), 1)
-        self.assertEqual(self.execute_next(), [None, 4])
-        self.assertEqual(r(), [None, 4])
+        self.assertEqual(self.execute_next(), [SKIPPED, 4])
+        self.assertEqual(r(), [SKIPPED, 4])
 
     def test_chord_ordering(self):
         @self.huey.task()
@@ -2434,6 +2481,33 @@ class TestTaskChaining(BaseTestCase):
 
         # Was r4 enqueued? -- No.
         self.assertEqual(len(self.huey), 0)
+        self.assertTrue(isinstance(r4.get_raw_result(), Error))
+        self.assertEqual(r4.get_raw_result().metadata['task_id'], r3.id)
+        self.assertRaises(TaskException, r4.get, blocking=True, timeout=1)
+
+    def test_pipeline_error_retries_then_downstream(self):
+        @self.huey.task(retries=1)
+        def task_a(n):
+            raise TestError(n)
+
+        @self.huey.task()
+        def task_e(n, err):
+            return n
+
+        pipe = task_a.s(1).then(task_a, 2).then(task_a, 3)
+        pipe.error(task_e, 9)
+        r1, r2, r3 = self.huey.enqueue(pipe)
+        self.assertTrue(self.execute_next() is None)
+        self.assertEqual(len(self.huey), 2)  # Error handler, retry.
+        self.assertEqual(self.execute_next(), 9)
+        self.assertTrue(r3.get_raw_result() is None)
+
+        self.assertTrue(self.execute_next() is None)  # Retry, final failure.
+        self.assertEqual(len(self.huey), 1)  # Error handler.
+        self.assertEqual(self.execute_next(), 9)
+        self.assertEqual(len(self.huey), 0)
+        for r in (r1, r2, r3):
+            self.assertRaises(TaskException, r.get)
 
     def test_pipeline_revoke_midway(self):
         @self.huey.task()

@@ -45,6 +45,13 @@ Changelog
   index is dropped when the schema is initialized.
 * Ensure one raising signal receiver does not prevent the remaining receivers
   from running.
+* Pass failed chord members to the callback as `huey.Error` and skipped
+  (revoked, expired, cancelled) members as `huey.SKIPPED` instead of a raw
+  exception or `None`.
+* Delete chord partial results explicitly on completion, so they no longer
+  linger until expiry on `RedisExpireStorage`.
+* Write the error of a failed pipeline stage to every skipped downstream
+  stage, so their `Result` handles raise instead of blocking.
 
 [View commits](https://github.com/coleifer/huey/compare/3.3.4...master)
 
