@@ -17,6 +17,7 @@ from huey import signals as S
 from huey.constants import EmptyData
 from huey.consumer import Consumer
 from huey.exceptions import CancelExecution
+from huey.exceptions import ConfigurationError
 from huey.exceptions import RateLimitExceeded
 from huey.exceptions import ResultTimeout
 from huey.exceptions import RetryTask
@@ -1003,6 +1004,11 @@ class TaskWrapper(object):
         return self.huey._registry.unregister(self.task_class)
 
     def create_task(self, func, context=False, name=None, **settings):
+        if inspect.iscoroutinefunction(func):
+            raise ConfigurationError(
+                'huey does not support async functions. Wrap the coroutine '
+                'with asyncio.run() in a regular function.')
+
         def execute(self):
             args, kwargs = self.data
             if self.context:

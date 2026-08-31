@@ -65,6 +65,7 @@ Smaller stuff:
   and task-class keys in one round trip.
 * Add `ttl` to `lock_task()` and `put_if_empty()` so locks expire on their own.
   Supported by memory and redis storages, others raise `NotImplementedError`.
+* Add `timeout` parameter to `aget_result()`.
 
 [View commits](https://github.com/coleifer/huey/compare/3.3.4...master)
 

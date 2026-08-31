@@ -1,3 +1,4 @@
+import asyncio
 import datetime
 import inspect
 import time
@@ -16,6 +17,7 @@ from huey.constants import EmptyData
 from huey.exceptions import CancelExecution
 from huey.exceptions import RateLimitExceeded
 from huey.exceptions import ResultTimeout
+from huey.exceptions import ConfigurationError
 from huey.exceptions import RetryTask
 from huey.exceptions import TaskException
 from huey.exceptions import TaskLockedException
@@ -1282,6 +1284,30 @@ class TestQueue(BaseTestCase):
         assertPeriodic(21, 0, ['sleep', 'first_half'])
         assertPeriodic(21, 30, ['first_half'])
         assertPeriodic(21, 31, [])
+
+
+class TestAsyncTasks(BaseTestCase):
+    def test_async_task_rejected(self):
+        async def task_a(n):
+            return n
+
+        self.assertRaises(ConfigurationError, self.huey.task(), task_a)
+        self.assertRaises(ConfigurationError,
+                          self.huey.periodic_task(crontab(minute='1')),
+                          task_a)
+
+    def test_async_wrapper_pattern(self):
+        async def _work(n):
+            await asyncio.sleep(0)
+            return n + 1
+
+        @self.huey.task()
+        def task_a(n):
+            return asyncio.run(_work(n))
+
+        res = task_a(1)
+        self.assertEqual(self.execute_next(), 2)
+        self.assertEqual(res(), 2)
 
 
 class TestDecorators(BaseTestCase):
