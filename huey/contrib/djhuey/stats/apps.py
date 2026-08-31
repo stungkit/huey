@@ -1,9 +1,8 @@
 import logging
+import os
 
 from django.apps import AppConfig
 from django.conf import settings
-from django.core.exceptions import ImproperlyConfigured
-from django.db import connections
 
 import peewee
 
@@ -13,41 +12,32 @@ logger = logging.getLogger('huey')
 
 def stats_database():
     """
-    Resolved when the recorder writes its first event, not at startup: the
-    test runner swaps in the test database after the apps are loaded, so
-    reading the name in ready() would name the developer's own database.
+    Stats are recorded to huey's own sqlite database. Point
+    HUEY_STATS['database'] at a peewee Database or db-url to store them
+    elsewhere, e.g. the database Django uses.
     """
-    db = (getattr(settings, 'HUEY_STATS', None) or {}).get('database')
+    options = getattr(settings, 'HUEY_STATS', None) or {}
+    db = options.get('database')
     if isinstance(db, peewee.Database):
         return db
     elif isinstance(db, str):
         from playhouse.db_url import connect
         return connect(db)
 
-    conn = connections['default'].settings_dict
-    engine = conn['ENGINE'].rsplit('.', 1)[-1]
-    if engine == 'sqlite3':
-        # Django's sqlite test database is a shared-cache memory URI.
-        name = str(conn['NAME'])
-        return peewee.SqliteDatabase(name, uri=name.startswith('file:'))
+    filename = options.get('filename') or 'huey-stats.db'
+    base = getattr(settings, 'BASE_DIR', None)
+    if base and not os.path.isabs(filename):
+        filename = os.path.join(str(base), filename)
+    # The consumer and every web process write to this file.
+    return peewee.SqliteDatabase(filename, timeout=5, pragmas={
+        'journal_mode': 'wal', 'synchronous': 1})
 
-    kwargs = {'user': conn.get('USER'), 'password': conn.get('PASSWORD'),
-              'host': conn.get('HOST'), 'port': conn.get('PORT')}
-    kwargs = {k: v for k, v in kwargs.items() if v}
-    if 'port' in kwargs:
-        kwargs['port'] = int(kwargs['port'])
-    # OPTIONS are passed verbatim to the driver, except keys Django consumes.
-    skip = ('assume_role', 'isolation_level', 'pool', 'server_side_binding')
-    kwargs.update({k: v for k, v in (conn.get('OPTIONS') or {}).items()
-                   if k not in skip})
-    if engine in ('postgresql', 'postgresql_psycopg2', 'postgis'):
-        return peewee.PostgresqlDatabase(conn['NAME'], **kwargs)
-    elif engine == 'mysql':
-        return peewee.MySQLDatabase(conn['NAME'], **kwargs)
-    raise ImproperlyConfigured(
-        'huey stats cannot map DATABASES["default"] (%s) to a peewee '
-        'database. Set HUEY_STATS["database"] to a peewee Database instance '
-        'or db-url string.' % conn['ENGINE'])
+
+def stats_options():
+    options = dict(getattr(settings, 'HUEY_STATS', None) or {})
+    options.pop('database', None)
+    options.pop('filename', None)
+    return options
 
 
 class HueyStatsConfig(AppConfig):
@@ -59,9 +49,7 @@ class HueyStatsConfig(AppConfig):
     def ready(self):
         from huey.contrib.djhuey import HUEY
         from huey.contrib.stats import enable_stats
-        options = dict(getattr(settings, 'HUEY_STATS', None) or {})
-        options.pop('database', None)
         try:
-            enable_stats(HUEY, stats_database, **options)
+            enable_stats(HUEY, stats_database(), **stats_options())
         except Exception:
             logger.exception('huey stats recorder failed to start.')

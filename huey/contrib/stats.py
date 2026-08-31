@@ -57,8 +57,6 @@ def _unwrap_proxy(obj):
     return obj.obj if isinstance(obj, peewee.Proxy) else obj
 
 def _resolve_db(db):
-    if not isinstance(db, peewee.Database) and callable(db):
-        db = db()
     obj = _unwrap_proxy(db)
     if not isinstance(obj, peewee.Database):
         obj = _unwrap_proxy(getattr(obj, 'database', None))
@@ -74,6 +72,7 @@ class HueyStats(object):
                  flush_max=200):
         self.huey = huey
         self.name = huey.name
+        self.db = _resolve_db(db)
         self.retention = retention_hours * 3600
         self.max_events = max_events
         self.capture_args = capture_args
@@ -89,37 +88,16 @@ class HueyStats(object):
         self._wake = threading.Event()
         self._prune_at = 0
 
-        self._db = None
-        self._db_source = db
-        self._create_tables = create_tables
-        self._db_lock = threading.Lock()
-
-    @property
-    def db(self):
-        """
-        Resolved on first use, so a process that records and reads nothing
-        never connects. The source may be a callable, for settings that are
-        not final when the recorder is created.
-        """
-        if self._db is None:
-            with self._db_lock:
-                if self._db is None:
-                    self._db = self._resolve()
-        return self._db
-
-    def _resolve(self):
-        db = _resolve_db(self._db_source)
         if database.obj is None:
-            database.initialize(db)
-        if self._create_tables:
+            database.initialize(self.db)
+        if create_tables:
             # The writer thread opens its own connection. Close the one
             # create_tables opens, so forked children do not inherit a live
             # socket. Leave a connection the caller opened alone.
-            was_closed = db.is_closed()
-            db.create_tables(MODELS, safe=True)
+            was_closed = self.db.is_closed()
+            self.db.create_tables(MODELS, safe=True)
             if was_closed:
-                db.close()
-        return db
+                self.db.close()
 
     def connect(self):
         if self._connected:
@@ -146,18 +124,15 @@ class HueyStats(object):
         if self._stop.is_set():
             return
         self._lock = threading.Lock()
-        self._db_lock = threading.Lock()
         self._stop = threading.Event()
         self._wake = threading.Event()
         self._buf = []
         self._start = {}
-        if self._db is not None:
-            self._db._state.reset()
+        self.db._state.reset()
         self._start_writer()
 
     def _on_signal(self, signal, task, exc=None):
         try:
-            self._bind()
             now = time.time()
             t = type(task)
             duration = None
@@ -188,8 +163,8 @@ class HueyStats(object):
             self._wake.wait(self._flush_interval)
             self._wake.clear()
             self._flush()
-        if self._db is not None and not self._db.is_closed():
-            self._db.close()
+        if not self.db.is_closed():
+            self.db.close()
 
     def _flush(self):
         with self._lock:
@@ -255,12 +230,7 @@ class HueyStats(object):
         if self._writer is not None:
             self._writer.join(timeout=2)
 
-    def _bind(self):
-        # Resolving the db initializes the proxy the models are bound to.
-        return self.db
-
     def _events(self):
-        self._bind()
         return HueyEvent.select().where(HueyEvent.queue == self.name)
 
     def window_counts(self, seconds=86400):
@@ -270,17 +240,53 @@ class HueyStats(object):
                 .group_by(HueyEvent.signal).tuples())
         return {signal: n for signal, n in rows}
 
+    def _format_event(self, row, fmt='%H:%M:%S'):
+        return {'ts': row['ts'],
+                'time': time.strftime(fmt, time.localtime(row['ts'])),
+                'task': row['task'].rsplit('.', 1)[-1],
+                'task_full': row['task'], 'task_id': row['task_id'],
+                'signal': row['signal'], 'duration': row['duration'],
+                'error': row['error'], 'args': row.get('args')}
+
     def recent_events(self, limit=50):
         rows = (self._events().order_by(HueyEvent.id.desc()).limit(limit)
                 .dicts())
-        return [{'ts': r['ts'],
-                 'time': time.strftime('%H:%M:%S', time.localtime(r['ts'])),
-                 'task': r['task'].rsplit('.', 1)[-1], 'signal': r['signal'],
-                 'duration': r['duration'], 'error': r['error']} for r in rows]
+        return [self._format_event(r) for r in rows]
+
+    def search_events(self, signal=None, task=None, q=None, limit=100,
+                      offset=0):
+        """
+        Filtered slice of the event log, newest first. Returns the total
+        number of matching rows along with the requested page of them.
+        """
+        query = self._events()
+        if signal:
+            query = query.where(HueyEvent.signal == signal)
+        if task:
+            query = query.where(HueyEvent.task == task)
+        if q:
+            term = '%%%s%%' % q
+            query = query.where((HueyEvent.task_id ** term) |
+                                (HueyEvent.task ** term) |
+                                (HueyEvent.error ** term))
+        total = query.count()
+        rows = (query.order_by(HueyEvent.id.desc())
+                .limit(limit).offset(offset).dicts())
+        return total, [self._format_event(r, '%Y-%m-%d %H:%M:%S')
+                       for r in rows]
+
+    def event_signals(self):
+        rows = (self._events().select(HueyEvent.signal).distinct()
+                .order_by(HueyEvent.signal).tuples())
+        return [signal for signal, in rows]
+
+    def event_tasks(self):
+        rows = (self._events().select(HueyEvent.task).distinct()
+                .order_by(HueyEvent.task).tuples())
+        return [task for task, in rows]
 
     def inflight(self):
         now = time.time()
-        self._bind()
         rows = (HueyInflight.select()
                 .where(HueyInflight.queue == self.name)
                 .order_by(HueyInflight.started).dicts())
@@ -385,6 +391,16 @@ def dashboard_context(huey, stats, list_limit=50, event_limit=50,
     known = known_tasks(huey)
     for row in known:
         row['stats'] = stats_map.get(row['full'])
+        row['registered'] = True
+    # A web process does not autodiscover tasks the way the consumer does, so
+    # without this the table lists whatever happens to be imported here and
+    # hides every task that actually ran.
+    seen = {row['full'] for row in known}
+    for full, row in sorted(stats_map.items()):
+        if full not in seen:
+            known.append({'full': full, 'task': full.rsplit('.', 1)[-1],
+                          'revoked': False, 'registered': False,
+                          'stats': row})
     return {'live': live_counts(huey), 'overview': stats.overview(),
             'known': known, 'inflight': stats.inflight(),
             'events': stats.recent_events(event_limit),

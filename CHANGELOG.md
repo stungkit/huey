@@ -3,6 +3,24 @@ Changelog
 
 ## master
 
+* **Backwards-incompatible.** The django stats app writes to its own sqlite
+  database, `huey-stats.db` next to `settings.BASE_DIR`, instead of
+  `DATABASES['default']`. Deriving a peewee connection from the Django
+  database settings was fragile and error-prone.
+
+  To keep recording in your Django database, specify the database explicitly:
+
+  ```python
+  HUEY_STATS = {'database': 'postgresql://user:password@localhost/my_db'}
+  ```
+
+  `HUEY_STATS['database']` takes a db-url or a peewee `Database`, and
+  `HUEY_STATS['filename']` sets the sqlite path. See the Django docs section
+  for building a peewee database from your existing `DATABASES` entry.
+
+  The admin *Events* log is now rendered from the stats database through
+  peewee, rather than being a `ModelAdmin`. It is now linked from the
+  dashboard's *Recent events* heading.
 * Better handling for `timeout`, `locked`, `rate-limited` and `retrying` in
   stats recorder.
 

@@ -45,76 +45,19 @@ class StatsTestCase(BaseTestCase):
     def get_stats(self, **kwargs):
         self.stats = HueyStats(self.huey, self.db, **kwargs)
         self.stats.connect()
-        self.stats._bind()  # Resolve up-front, as a recording process would.
         return self.stats
 
 
 class TestStatsInit(StatsTestCase):
     def test_init_closes_own_connection(self):
-        HueyStats(self.huey, self.db)._bind()
+        HueyStats(self.huey, self.db)
         self.assertTrue(self.db.is_closed())
 
     def test_init_preserves_open_connection(self):
         self.db.connect()
-        HueyStats(self.huey, self.db)._bind()
+        HueyStats(self.huey, self.db)
         self.assertFalse(self.db.is_closed())
         self.db.close()
-
-    def test_db_resolved_on_first_use(self):
-        stats = HueyStats(self.huey, self.db)
-        self.assertTrue(stats._db is None)
-        self.assertFalse(self.db.table_exists('huey_event'))
-
-        self.assertTrue(stats.db is self.db)
-        self.assertTrue(self.db.table_exists('huey_event'))
-
-    def test_db_source_may_be_callable(self):
-        calls = []
-
-        def get_db():
-            calls.append(1)
-            return self.db
-
-        stats = HueyStats(self.huey, get_db)
-        self.assertEqual(calls, [])
-
-        self.assertTrue(stats.db is self.db)
-        self.assertTrue(stats.db is self.db)  # Resolved once, then cached.
-        self.assertEqual(calls, [1])
-
-    def test_unresolved_db_survives_close(self):
-        # Nothing was recorded, so shutdown must not connect just to close.
-        stats = HueyStats(self.huey, self.db)
-        stats.connect()
-        stats.close()
-        self.assertTrue(stats._db is None)
-
-    def test_db_pinned_at_first_event(self):
-        # The django test runner swaps in a test database and restores the
-        # original when it finishes. Rows are buffered and written after that,
-        # so the database is chosen when the first event is recorded, not when
-        # the batch is flushed.
-        other_file = self.db_file + '-other'
-        if os.path.exists(other_file):
-            os.unlink(other_file)
-        other = peewee.SqliteDatabase(other_file)
-        current = [self.db]
-        stats_mod.database.obj = None  # Let the recorder bind the proxy.
-
-        self.stats = HueyStats(self.huey, lambda: current[0],
-                               flush_interval=60)
-        self.stats.connect()
-        self.huey._emit(S.SIGNAL_ENQUEUED, self.task_a.s())
-        self.assertTrue(stats_mod.database.obj is self.db)
-
-        current[0] = other
-        self.stats._flush()
-
-        self.assertTrue(stats_mod.database.obj is self.db)
-        self.assertEqual(HueyEvent.select().count(), 1)
-        self.assertFalse(other.table_exists('huey_event'))
-        other.close()
-        os.unlink(other_file)
 
 
 class TestResolveDb(StatsTestCase):
@@ -183,6 +126,117 @@ class TestStatsFlush(StatsTestCase):
         rows = dict((e.signal, e.duration) for e in HueyEvent.select())
         self.assertTrue(rows[S.SIGNAL_ERROR] is not None)
         self.assertTrue(rows[S.SIGNAL_RETRYING] is None)
+
+
+class TestDashboardContext(StatsTestCase):
+    def test_unregistered_tasks_still_listed(self):
+        # A web process does not import the consumer's tasks module, so the
+        # table must fall back to whatever the recorder has actually seen.
+        stats = self.get_stats(flush_interval=60)
+        t = self.task_a.s()
+        self.huey._emit(S.SIGNAL_EXECUTING, t)
+        self.huey._emit(S.SIGNAL_COMPLETE, t)
+        stats._flush()
+
+        full = stats_mod.known_tasks(self.huey)[0]['full']
+        self.task_a.unregister()
+        self.assertEqual(stats_mod.known_tasks(self.huey), [])
+
+        rows = stats_mod.dashboard_context(self.huey, stats)['known']
+        self.assertEqual([r['full'] for r in rows], [full])
+        self.assertFalse(rows[0]['registered'])
+        self.assertEqual(rows[0]['stats']['completed'], 1)
+
+    def test_registered_tasks_are_marked(self):
+        stats = self.get_stats(flush_interval=60)
+        rows = stats_mod.dashboard_context(self.huey, stats)['known']
+        self.assertTrue(rows[0]['registered'])
+        self.assertTrue(rows[0]['stats'] is None)
+
+
+class TestSearchEvents(StatsTestCase):
+    def emit(self, task, signal, error=None):
+        self.huey._emit(signal, task, error)
+
+    def setup_events(self):
+        stats = self.get_stats(flush_interval=60)
+
+        @self.huey.task()
+        def task_b():
+            pass
+
+        a, b = self.task_a.s(), task_b.s()
+        self.emit(a, S.SIGNAL_EXECUTING)
+        self.emit(a, S.SIGNAL_COMPLETE)
+        self.emit(b, S.SIGNAL_EXECUTING)
+        self.emit(b, S.SIGNAL_ERROR, ValueError('kapow'))
+        stats._flush()
+        return stats
+
+    def test_no_filters_returns_everything_newest_first(self):
+        stats = self.setup_events()
+        total, rows = stats.search_events()
+        self.assertEqual(total, 4)
+        self.assertEqual([r['signal'] for r in rows],
+                         [S.SIGNAL_ERROR, S.SIGNAL_EXECUTING,
+                          S.SIGNAL_COMPLETE, S.SIGNAL_EXECUTING])
+
+    def test_filter_by_signal(self):
+        stats = self.setup_events()
+        total, rows = stats.search_events(signal=S.SIGNAL_EXECUTING)
+        self.assertEqual(total, 2)
+        self.assertTrue(all(r['signal'] == S.SIGNAL_EXECUTING for r in rows))
+
+    def test_filter_by_task(self):
+        stats = self.setup_events()
+        name = stats.event_tasks()[0]
+        total, rows = stats.search_events(task=name)
+        self.assertEqual(total, 2)
+        self.assertTrue(all(r['task_full'] == name for r in rows))
+
+    def test_search_matches_error_task_and_id(self):
+        stats = self.setup_events()
+        total, rows = stats.search_events(q='kapow')
+        self.assertEqual(total, 1)
+        self.assertTrue('kapow' in rows[0]['error'])
+
+        total, _ = stats.search_events(q='task_b')
+        self.assertEqual(total, 2)
+
+        task_id = stats.search_events()[1][0]['task_id']
+        total, rows = stats.search_events(q=task_id)
+        self.assertEqual(total, 2)  # executing + error for that task
+
+        self.assertEqual(stats.search_events(q='nope')[0], 0)
+
+    def test_filters_combine(self):
+        stats = self.setup_events()
+        total, _ = stats.search_events(signal=S.SIGNAL_EXECUTING, q='kapow')
+        self.assertEqual(total, 0)
+
+    def test_pagination(self):
+        stats = self.setup_events()
+        total, page1 = stats.search_events(limit=3, offset=0)
+        self.assertEqual((total, len(page1)), (4, 3))
+
+        total, page2 = stats.search_events(limit=3, offset=3)
+        self.assertEqual((total, len(page2)), (4, 1))
+
+        ids = [r['ts'] for r in page1] + [r['ts'] for r in page2]
+        self.assertEqual(len(set(ids)), len(ids))  # no overlap
+
+    def test_filter_options(self):
+        stats = self.setup_events()
+        self.assertEqual(stats.event_signals(),
+                         sorted([S.SIGNAL_COMPLETE, S.SIGNAL_ERROR,
+                                 S.SIGNAL_EXECUTING]))
+        self.assertEqual(len(stats.event_tasks()), 2)
+
+    def test_scoped_to_this_queue(self):
+        stats = self.setup_events()
+        stats.name = 'other-queue'
+        self.assertEqual(stats.search_events()[0], 0)
+        self.assertEqual(stats.event_signals(), [])
 
 
 @unittest.skipIf(not hasattr(os, 'register_at_fork'), 'requires fork()')

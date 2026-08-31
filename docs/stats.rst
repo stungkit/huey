@@ -60,12 +60,11 @@ available afterwards as ``huey._stats``) exposes read helpers:
     stats.recent_events(limit=50)  # most recent events, newest first
     stats.inflight()               # tasks currently executing
 
-Two tables are created the first time an event is recorded or read (unless
+Two tables are created when the recorder starts (unless
 ``create_tables=False``): ``huey_event``, an append-only event log trimmed to
 the retention settings, and ``huey_inflight``, one row per currently-executing
 task. Writes are buffered and flushed by a background thread, so recording adds
-negligible overhead to task execution. A process that never records or reads an
-event never connects.
+negligible overhead to task execution.
 
 API
 ^^^
@@ -77,9 +76,7 @@ API
 
     :param huey: the :py:class:`Huey` instance to monitor.
     :param db: a peewee ``Database`` or flask-peewee ``Database`` in which the
-        ``huey_event`` and ``huey_inflight`` tables live. May also be a callable
-        returning one, called when the database is first needed, for settings
-        that are not final at start-up.
+        ``huey_event`` and ``huey_inflight`` tables live.
     :param int retention_hours: how long to keep events, in hours (default 48).
     :param int max_events: maximum events retained per queue (default 2000).
     :param bool capture_args: also store a truncated repr of each task's args
