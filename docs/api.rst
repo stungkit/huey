@@ -36,6 +36,10 @@ Huey types
         enable low-latency result reading.
     :param int notify_result_ttl: TTL for result-ready key to automatically
         expire un-awaited results.
+    :param bool clean_name: strip non-alphanumeric characters from the name
+        when building Redis keys. Default is true, so ``app-v1`` and ``appv1``
+        share keys. Pass false to use the name verbatim (this will become the
+        default in a future release).
 
     The `redis-py documentation <https://redis-py.readthedocs.io/en/latest/>`_
     contains the complete list of arguments supported by the Redis client.
@@ -53,7 +57,7 @@ Huey types
     For low-latency result-fetching, you can specify ``notify_result=True``
     when instantiating ``RedisHuey`` (or subclasses). This works by
     coordinating result readiness through a blocking pop on a dedicated result
-    list. By default this result-readiness list will expire after 86400 seconds,
+    list. By default this result-readiness list will expire after 60 seconds,
     but this can be controlled with the ``notify_result_ttl`` parameter.
     **All RedisHuey** implementations support these options.
 
@@ -2280,7 +2284,7 @@ Storage
 
 Huey comes with several built-in storage implementations:
 
-.. py:class:: RedisStorage(name='huey', blocking=True, read_timeout=1, connection_pool=None, url=None, client_name=None, notify_result=False, notify_result_ttl=86400, **connection_params)
+.. py:class:: RedisStorage(name='huey', blocking=True, read_timeout=1, connection_pool=None, url=None, client_name=None, notify_result=False, notify_result_ttl=60, **connection_params)
 
     :param str name: namespace for storage.
     :param bool blocking: Use blocking-pop when reading from the queue (as
@@ -2300,7 +2304,7 @@ Huey comes with several built-in storage implementations:
     for the complete list of arguments supported by the Redis client.
 
 
-.. py:class:: RedisExpireStorage(name='huey', expire_time=86400, blocking=True, read_timeout=1, connection_pool=None, url=None, client_name=None, notify_result=False, notify_result_ttl=86400, **connection_params)
+.. py:class:: RedisExpireStorage(name='huey', expire_time=86400, blocking=True, read_timeout=1, connection_pool=None, url=None, client_name=None, notify_result=False, notify_result_ttl=60, **connection_params)
 
     :param int expire_time: TTL for results of individual tasks.
 
@@ -2313,7 +2317,7 @@ Huey comes with several built-in storage implementations:
     clean-up.
 
 
-.. py:class:: PriorityRedisStorage(name='huey', blocking=True, read_timeout=1, connection_pool=None, url=None, client_name=None, notify_result=False, notify_result_ttl=86400, **connection_params)
+.. py:class:: PriorityRedisStorage(name='huey', blocking=True, read_timeout=1, connection_pool=None, url=None, client_name=None, notify_result=False, notify_result_ttl=60, **connection_params)
 
     :param str name: namespace for storage.
     :param bool blocking: Use blocking-zpopmin when reading from the queue (as

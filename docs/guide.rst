@@ -1728,7 +1728,7 @@ weaknesses of each storage layer.
     For low-latency result-fetching, you can specify ``notify_result=True``
     when instantiating ``RedisHuey``. This works by coordinating result
     readiness through a blocking pop on a dedicated result list. By default
-    this result-readiness list will expire after 86400 seconds, but this can be
+    this result-readiness list will expire after 60 seconds, but this can be
     controlled with the ``notify_result_ttl`` parameter. **All RedisHuey**
     implementations support these options.
 

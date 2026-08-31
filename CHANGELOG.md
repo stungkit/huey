@@ -4,18 +4,16 @@ Changelog
 ## master
 
 * **Backwards-incompatible.** The django stats app writes to its own sqlite
-  database, `huey-stats.db` next to `settings.BASE_DIR`, instead of
-  `DATABASES['default']`. Deriving a peewee connection from the Django
-  database settings was fragile and error-prone.
-
-  To keep recording in your Django database, specify the database explicitly:
+  database by default (`huey-stats.db` in `settings.BASE_DIR`), instead of
+  `DATABASES['default']`. To keep recording in your main Django database,
+  specify the database explicitly:
 
   ```python
   HUEY_STATS = {'database': 'postgresql://user:password@localhost/my_db'}
   ```
 
-  `HUEY_STATS['database']` takes a db-url or a peewee `Database`, and
-  `HUEY_STATS['filename']` sets the sqlite path. See the Django docs section
+  `HUEY_STATS['database']` takes a db-url or a peewee `Database`, or use
+  `HUEY_STATS['filename']` to set the sqlite path. See the Django docs section
   for building a peewee database from your existing `DATABASES` entry.
 
   The admin *Events* log is now rendered from the stats database through
@@ -25,6 +23,13 @@ Changelog
   stats recorder.
 * Fix crontab ranges with a step (`0-30/5`) and wrap-around ranges (`22-2`,
   `day_of_week='1-7'`). Raise `ValueError` when a field matches no values.
+* Add `clean_name` option to `RedisHuey` (default to `True`). Specify `False`
+  to stop stripping non-alphanumeric characters from the name. The default will
+  change in a future release.
+* Reduce Redis round-trips for `peek_data`, `pop_data` and `delete_data`, and
+  make `RedisExpireStorage.incr()` set the TTL atomically w/ the increment.
+* Re-check for the result after the notify pop times out, so multiple waiters
+  on the same result w/ `notify_result=True` all succeed.
 
 [View commits](https://github.com/coleifer/huey/compare/3.3.4...master)
 

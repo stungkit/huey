@@ -433,8 +433,8 @@ class RedisStorage(BaseStorage):
 
     def __init__(self, name='huey', blocking=True, read_timeout=1,
                  connection_pool=None, url=None, client_name=None,
-                 notify_result=False, notify_result_ttl=86400,
-                 **connection_params):
+                 notify_result=False, notify_result_ttl=60,
+                 clean_name=True, **connection_params):
 
         if Redis is None:
             raise ConfigurationError('"redis" python module not found, cannot '
@@ -462,7 +462,7 @@ class RedisStorage(BaseStorage):
         self.connection_params = connection_params
         self._pop = self.conn.register_script(SCHEDULE_POP_LUA)
 
-        self.name = self.clean_name(name)
+        self.name = self.clean_name(name) if clean_name else name
         self.queue_key = 'huey.redis.%s' % self.name
         self.schedule_key = 'huey.schedule.%s' % self.name
         self.result_key = 'huey.results.%s' % self.name
@@ -562,19 +562,18 @@ class RedisStorage(BaseStorage):
             self._notify(key)
 
     def peek_data(self, key):
-        pipe = self.conn.pipeline()
-        pipe.hexists(self.result_key, key)
-        pipe.hget(self.result_key, key)
-        exists, val = pipe.execute()
-        return EmptyData if not exists else val
+        val = self.conn.hget(self.result_key, key)
+        return EmptyData if val is None else val
 
     def pop_data(self, key):
         pipe = self.conn.pipeline()
-        pipe.hexists(self.result_key, key)
         pipe.hget(self.result_key, key)
         pipe.hdel(self.result_key, key)
-        exists, val, n = pipe.execute()
-        return EmptyData if not exists else val
+        val, _ = pipe.execute()
+        return EmptyData if val is None else val
+
+    def delete_data(self, key):
+        return self.conn.hdel(self.result_key, key) != 0
 
     def wait_result(self, key, timeout=None, backoff=1.15, max_delay=1.0):
         if not self.notify_result:
@@ -596,7 +595,7 @@ class RedisStorage(BaseStorage):
             self.conn.delete(nkey)
             return True
 
-        return False
+        return self.has_data_for_key(key)
 
     def has_data_for_key(self, key):
         return self.conn.hexists(self.result_key, key)
@@ -650,11 +649,8 @@ class RedisExpireStorage(RedisStorage):
             self.conn.set(self.result_key(key), value)
 
     def peek_data(self, key):
-        pipe = self.conn.pipeline()
-        pipe.exists(self.result_key(key))
-        pipe.get(self.result_key(key))
-        exists, val = pipe.execute()
-        return EmptyData if not exists else val
+        val = self.conn.get(self.result_key(key))
+        return EmptyData if val is None else val
 
     # Here we explicitly prevent result items from being removed by using the
     # same implementation for "pop" (get and delete) as we do for "peek"
@@ -671,9 +667,10 @@ class RedisExpireStorage(RedisStorage):
         return self.conn.setnx(self.result_key(key), value)
 
     def incr(self, key, amount=1):
-        res = self.conn.incr(self.counter_key(key), amount)
-        self.conn.expire(self.counter_key(key), self._expire_time)
-        return res
+        pipe = self.conn.pipeline()
+        pipe.incr(self.counter_key(key), amount)
+        pipe.expire(self.counter_key(key), self._expire_time)
+        return pipe.execute()[0]
 
     def delete_counter(self, key):
         self.conn.delete(self.counter_key(key))

@@ -5,6 +5,7 @@ import os
 import shutil
 import sqlite3
 import threading
+import time
 import unittest
 import uuid
 from queue import Queue
@@ -269,10 +270,50 @@ class TestRedisStorage(StorageTests, BaseTestCase):
         # None values are fine, however.
         RedisHuey(host=None, port=None, db=None, url='redis://localhost')
 
+    def test_name_not_mangled(self):
+        s3 = RedisHuey('app-v1', utc=False).storage
+        self.assertEqual(s3.name, 'appv1')
+        s1 = RedisHuey('app-v1', utc=False, clean_name=False).storage
+        s2 = RedisHuey('appv1', utc=False).storage
+        self.assertEqual(s1.name, 'app-v1')
+        self.assertNotEqual(s1.queue_key, s2.queue_key)
+        s1.flush_all()
+        s2.flush_all()
+        s1.enqueue(b'i1')
+        self.assertEqual(s2.queue_size(), 0)
+        self.assertEqual(s1.dequeue(), b'i1')
+        s1.flush_all()
+
+    def test_empty_value(self):
+        self.s.put_data(b'k1', b'')
+        self.assertEqual(self.s.peek_data(b'k1'), b'')
+        self.assertEqual(self.s.pop_data(b'k1'), b'')
+
 
 class TestRedisStorageWaitResult(TestRedisStorage):
     def get_huey(self):
         return RedisHuey(utc=False, notify_result=True, notify_result_ttl=30)
+
+    def test_notify_ttl(self):
+        key = str(uuid.uuid4())
+        self.s.put_data(key, b'v1', is_result=True)
+        ttl = self.s.conn.ttl(self.s.notify_prefix + key)
+        self.assertTrue(0 < ttl <= 30)
+        self.s.pop_data(key)
+        self.assertTrue(self.s.wait_result(key, timeout=1))
+        self.assertFalse(self.s.conn.exists(self.s.notify_prefix + key))
+
+    def test_wait_result_multiple_waiters(self):
+        key = str(uuid.uuid4())
+        q = Queue()
+        def waiter():
+            q.put(self.s.wait_result(key, timeout=2))
+        threads = [threading.Thread(target=waiter) for _ in range(2)]
+        for t in threads: t.start()
+        time.sleep(0.2)
+        self.s.put_data(key, b'v1', is_result=True)
+        for t in threads: t.join()
+        self.assertEqual([q.get(), q.get()], [True, True])
 
 
 @requires_redis
@@ -315,6 +356,10 @@ class TestRedisExpireStorage(StorageTests, BaseTestCase):
         # Verify behavior of delete.
         self.assertTrue(self.s.delete_data(b'k2'))
         self.assertFalse(self.s.delete_data(b'k2'))
+
+        # Counters expire.
+        self.assertEqual(self.s.incr(b'c1'), 1)
+        self.assertTrue(3580 <= conn.ttl(self.s.counter_key(b'c1')) <= 3600)
 
         # Check the result items.
         self.assertEqual(self.s.result_items(), {
