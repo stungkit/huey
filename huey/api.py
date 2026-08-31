@@ -966,13 +966,11 @@ class PeriodicTask(Task):
 class TaskWrapper(object):
     task_base = Task
 
-    def __init__(self, huey, func, retries=None, retry_delay=None,
-                 context=False, name=None, task_base=None, **settings):
+    def __init__(self, huey, func, context=False, name=None, task_base=None,
+                 **settings):
         self.__doc__ = getattr(func, '__doc__', None)
         self.huey = huey
         self.func = func
-        self.retries = retries
-        self.retry_delay = retry_delay
         self.context = context
         self.name = name
         self.settings = settings
@@ -982,6 +980,14 @@ class TaskWrapper(object):
         # Dynamically create task class and register with Huey instance.
         self.task_class = self.create_task(func, context, name, **settings)
         self.huey._registry.register(self.task_class)
+
+    @property
+    def retries(self):
+        return self.task_class.default_retries
+
+    @property
+    def retry_delay(self):
+        return self.task_class.default_retry_delay
 
     def unregister(self):
         return self.huey._registry.unregister(self.task_class)
@@ -1071,6 +1077,7 @@ class TaskWrapper(object):
             eta = normalize_time(eta, delay, self.huey.utc)
 
         return self.task_class(args, kwargs,
+                               id=kwargs.pop('id', None),
                                eta=eta,
                                retries=kwargs.pop('retries', None),
                                retry_delay=kwargs.pop('retry_delay', None),

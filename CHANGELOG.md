@@ -19,6 +19,8 @@ Changelog
   The admin *Events* log is now rendered from the stats database through
   peewee, rather than being a `ModelAdmin`. It is now linked from the
   dashboard's *Recent events* heading.
+* Ensure `TaskWrapper.retries` and `retry_delay` reflect the declared values instead of always being `None`.
+* Accept an explicit `id` in `TaskWrapper.s()`, matching `schedule()`.
 * Better handling for `timeout`, `locked`, `rate-limited` and `retrying` in
   stats recorder.
 * Fix crontab ranges with a step (`0-30/5`) and wrap-around ranges (`22-2`,

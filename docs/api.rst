@@ -1133,13 +1133,10 @@ Huey object
         Return the number of items currently in the queue.
 
 
-.. py:class:: TaskWrapper(huey, func, retries=None, retry_delay=None, context=False, name=None, task_base=None, **settings)
+.. py:class:: TaskWrapper(huey, func, context=False, name=None, task_base=None, **settings)
 
     :param Huey huey: A huey instance.
     :param func: User function.
-    :param int retries: Upon failure, number of times to retry the task.
-    :param int retry_delay: Number of seconds to wait before retrying after a
-        failure/exception.
     :param bool context: when the task is executed, include the
         :py:class:`Task` instance as a parameter.
     :param str name: Name for task (will be determined based on task module and
@@ -1153,6 +1150,9 @@ Huey object
 
     The wrapper class, when called, will enqueue the requested function call
     for execution by the consumer.
+
+    The ``retries`` and ``retry_delay`` attributes reflect the values the task
+    was declared with.
 
     .. note::
         You should not need to create :py:class:`TaskWrapper` instances
@@ -1258,6 +1258,7 @@ Huey object
 
         :param args: Arguments for task function.
         :param kwargs: Keyword arguments for task function.
+        :param str id: explicit task id, defaults to a random UUID.
         :param int priority: assign priority override to task, higher numbers
             are processed first by the consumer when there is a backlog.
         :param expires: set expiration time for task. If the task is not run
@@ -1282,8 +1283,8 @@ Huey object
         .. warning::
             The following keyword argument names are reserved and will be
             intercepted by Huey rather than passed to your task function:
-            ``eta``, ``delay``, ``retries``, ``retry_delay``, ``priority``,
-            ``expires``, and ``timeout``. If your task function has a parameter
+            ``id``, ``eta``, ``delay``, ``retries``, ``retry_delay``,
+            ``retry_backoff``, ``priority``, ``expires``, and ``timeout``. If your task function has a parameter
             with one of these names, rename the parameter or pass the value
             positionally.
 

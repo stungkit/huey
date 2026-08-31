@@ -1293,6 +1293,31 @@ class TestDecorators(BaseTestCase):
         self.assertEqual(retry_delay, 1)
         self.assertEqual(tid, task.id)
 
+    def test_task_wrapper_retry_attrs(self):
+        @self.huey.task(retries=2, retry_delay=3)
+        def task_r():
+            pass
+        @self.huey.task()
+        def task_d():
+            pass
+        self.assertEqual((task_r.retries, task_r.retry_delay), (2, 3))
+        self.assertEqual((task_d.retries, task_d.retry_delay), (0, 0))
+
+    def test_task_id(self):
+        @self.huey.task()
+        def task_a(n):
+            return n + 1
+
+        self.assertEqual(task_a.s(1, id='t1').id, 't1')
+        self.assertEqual(task_a.schedule((1,), delay=1, id='t2').id, 't2')
+        self.assertEqual(task_a(1, id='t3').id, 't3')
+        self.assertEqual(self.huey.dequeue().id, 't2')
+        self.assertEqual(self.huey.dequeue().id, 't3')
+
+        pipe = task_a.s(1, id='p1').then(task_a, id='p2')
+        self.assertEqual(pipe.id, 'p1')
+        self.assertEqual(pipe.on_complete.id, 'p2')
+
     def test_periodic_task(self):
         @self.huey.periodic_task(crontab(minute='1'))
         def task_p():
