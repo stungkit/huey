@@ -9,8 +9,8 @@ retrying, and so on) into a pair of `peewee <https://docs.peewee-orm.com/>`_
 tables. From those tables you can compute throughput, error-rates, per-task
 timing and a live view of what is currently running.
 
-The recorder depends only on peewee and writes to any peewee ``Database`` you
-give it (SQLite, Postgres, MySQL). It is the engine behind the
+The recorder depends only on peewee (``pip install huey[stats]``) and writes
+to any peewee ``Database`` you give it (SQLite, Postgres, MySQL). It is the engine behind the
 :ref:`Flask-Peewee admin panel <flask-admin>` and the
 :ref:`Django admin dashboard <django-admin-stats>`, but it stands on its own:
 use it to feed a custom dashboard, a metrics exporter or a CLI report.

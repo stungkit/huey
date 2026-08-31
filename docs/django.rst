@@ -421,8 +421,8 @@ That is the whole setup. The app starts the stats recorder in every process
 at start-up, including the consumer (``run_huey`` is a management command),
 so both enqueue and execution events are captured with no further
 configuration. The recorder uses `peewee <https://docs.peewee-orm.com/>`_ for
-storage, creating its tables automatically and pruning old rows as new events
-are written.
+storage (``pip install huey[stats]``), creating its tables automatically
+and pruning old rows as new events are written.
 
 Stats are recorded to huey's own sqlite database, ``huey-stats.db``, written
 next to ``settings.BASE_DIR`` if you have defined one. Huey does not touch
@@ -515,7 +515,7 @@ Postgres or MySQL that is one extra connection per process.
 .. _django-task:
 
 Django task framework
----------------------
+^^^^^^^^^^^^^^^^^^^^^
 
 Django 6.0 includes `django.tasks
 <https://docs.djangoproject.com/en/stable/topics/tasks/>`_, a standard

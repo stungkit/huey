@@ -54,6 +54,8 @@ Changelog
   stage, so their `Result` handles raise instead of blocking.
 * Skip messages that fail to deserialize in `Huey.pending()` and
   `Huey.scheduled()`, logging the error, as `read_schedule()` already does.
+* Add monitoring docs.
+* Add `huey[stats]` extra for peewee.
 
 [View commits](https://github.com/coleifer/huey/compare/3.3.4...master)
 
