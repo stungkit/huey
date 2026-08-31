@@ -43,6 +43,8 @@ Changelog
 * Add `queue` to the sqlite task index (`task_queue_priority_id`) so queues
   sharing a file no longer scan each other's rows. The old `task_priority_id`
   index is dropped when the schema is initialized.
+* Ensure one raising signal receiver does not prevent the remaining receivers
+  from running.
 
 [View commits](https://github.com/coleifer/huey/compare/3.3.4...master)
 

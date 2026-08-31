@@ -289,10 +289,7 @@ class Huey(object):
         self._signal.disconnect(receiver, *signals)
 
     def _emit(self, signal, task, *args, **kwargs):
-        try:
-            self._signal.send(signal, task, *args, **kwargs)
-        except Exception:
-            logger.exception('Error occurred sending signal "%s"', signal)
+        self._signal.send(signal, task, *args, **kwargs)
 
     def serialize_task(self, task):
         message = self._registry.create_message(task)
