@@ -23,6 +23,8 @@ Changelog
   dashboard's *Recent events* heading.
 * Better handling for `timeout`, `locked`, `rate-limited` and `retrying` in
   stats recorder.
+* Fix crontab ranges with a step (`0-30/5`) and wrap-around ranges (`22-2`,
+  `day_of_week='1-7'`). Raise `ValueError` when a field matches no values.
 
 [View commits](https://github.com/coleifer/huey/compare/3.3.4...master)
 
