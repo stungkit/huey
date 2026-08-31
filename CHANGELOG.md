@@ -3,6 +3,8 @@ Changelog
 
 ## master
 
+* Add `--shutdown-timeout` option to bound graceful shutdown time.
+* Add `--graceful-signal` option to allow making SIGTERM the graceful signal.
 * **Backwards-incompatible.** The django stats app writes to its own sqlite
   database by default (`huey-stats.db` in `settings.BASE_DIR`), instead of
   `DATABASES['default']`. To keep recording in your main Django database,
@@ -19,15 +21,18 @@ Changelog
   The admin *Events* log is now rendered from the stats database through
   peewee, rather than being a `ModelAdmin`. It is now linked from the
   dashboard's *Recent events* heading.
-* Ensure `TaskWrapper.retries` and `retry_delay` reflect the declared values instead of always being `None`.
-* Accept an explicit `id` in `TaskWrapper.s()`, matching `schedule()`.
+
+Smaller stuff:
+
 * Better handling for `timeout`, `locked`, `rate-limited` and `retrying` in
   stats recorder.
+* Ensure `TaskWrapper.retries` and `retry_delay` reflect the declared values instead of always being `None`.
+* Accept an explicit `id` in `TaskWrapper.s()`, matching `schedule()`.
 * Fix crontab ranges with a step (`0-30/5`) and wrap-around ranges (`22-2`,
   `day_of_week='1-7'`). Raise `ValueError` when a field matches no values.
 * Add `clean_name` option to `RedisHuey` (default to `True`). Specify `False`
-  to stop stripping non-alphanumeric characters from the name. The default will
-  change in a future release.
+  to stop stripping non-alphanumeric characters from the storage namespace. The
+  default will change in a future release.
 * Reduce Redis round-trips for `peek_data`, `pop_data` and `delete_data`, and
   make `RedisExpireStorage.incr()` set the TTL atomically w/ the increment.
 * Re-check for the result after the notify pop times out, so multiple waiters
