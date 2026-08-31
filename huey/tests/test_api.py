@@ -125,6 +125,20 @@ class TestQueue(BaseTestCase):
         self.assertEqual(r(), 3)
         self.assertTrue(r.is_ready())  # Invert order of checks - OK.
 
+    def test_result_readiness_preserve(self):
+        @self.huey.task()
+        def task_a(n):
+            return n + 1
+
+        r = task_a(1)
+        self.assertEqual(self.execute_next(), 2)
+        self.assertTrue(r.is_ready())
+        self.assertEqual(self.huey.result_count(), 1)
+        self.assertEqual(r.get(preserve=True), 2)
+        self.assertEqual(self.huey.result_count(), 1)
+        self.assertEqual(self.huey.result(r.id), 2)
+        self.assertEqual(self.huey.result_count(), 0)
+
     def test_scheduling(self):
         @self.huey.task()
         def task_a(n):
@@ -346,6 +360,20 @@ class TestQueue(BaseTestCase):
         self.assertEqual(state, [2])
         self.assertEqual(r2(), 2)
         self.assertTrue(r1() is None and r3() is None)
+
+    def test_is_revoked_by_id(self):
+        @self.huey.task()
+        def task_a(n):
+            return n
+
+        r1, r2 = task_a(1), task_a(2)
+        self.huey.revoke_by_id(r1.id)
+        self.assertTrue(self.huey.is_revoked(r1.id))
+        self.assertFalse(self.huey.is_revoked(r2.id))
+
+        task_a.revoke()
+        self.assertTrue(r2.is_revoked())
+        self.assertFalse(self.huey.is_revoked(r2.id))
 
     def test_revoke_once(self):
         @self.huey.task()
@@ -2721,14 +2749,19 @@ class TestDisableResultStore(BaseTestCase):
         self.assertEqual(self.execute_next(), 5)
         self.assertEqual(state, [2, 3, 4])
 
-        self.huey.immediate = True
-        self.assertTrue(task_a(5) is None)
-        self.assertEqual(state, [2, 3, 4, 5])
+        self.assertTrue(task_a.map([5, 6]) is None)
+        self.assertEqual(self.execute_next(), 6)
+        self.assertEqual(self.execute_next(), 7)
+        self.assertEqual(state, [2, 3, 4, 5, 6])
 
-        p = task_a.s(6).then(task_a)
+        self.huey.immediate = True
+        self.assertTrue(task_a(7) is None)
+        self.assertEqual(state, [2, 3, 4, 5, 6, 7])
+
+        p = task_a.s(8).then(task_a)
         res = self.huey.enqueue(p)
         self.assertTrue(res is None)
-        self.assertEqual(state, [2, 3, 4, 5, 6, 7])
+        self.assertEqual(state, [2, 3, 4, 5, 6, 7, 8, 9])
 
         self.assertEqual(len(self.huey), 0)
         self.assertEqual(self.huey.result_count(), 0)

@@ -709,15 +709,15 @@ class Huey(object):
 
         if isinstance(task, Result):
             task = task.task
-        elif not isinstance(task, Task):
-            # Assume we've been given a task ID.
+        by_id = not isinstance(task, Task)
+        if by_id:
             task = Task(id=task)
 
         key = task.revoke_id
         is_revoked, can_restore = self._check_revoked(key, timestamp, peek)
         if can_restore:
             self.restore(task)
-        if not is_revoked:
+        if not is_revoked and not by_id:
             is_revoked = self.is_revoked(type(task), timestamp, peek)
 
         return is_revoked
@@ -1052,7 +1052,9 @@ class TaskWrapper(object):
         return [self.s(*(i if isinstance(i, tuple) else (i,))) for i in it]
 
     def map(self, it):
-        return ResultGroup([self.huey.enqueue(t) for t in self._apply(it)])
+        results = [self.huey.enqueue(t) for t in self._apply(it)]
+        if self.huey.results:
+            return ResultGroup(results)
 
     def __call__(self, *args, **kwargs):
         return self.huey.enqueue(self.s(*args, **kwargs))
@@ -1247,7 +1249,9 @@ class Result(object):
         return self.get(*args, **kwargs)
 
     def is_ready(self):
-        return self._get() is not EmptyData
+        if self._result is not EmptyData:
+            return True
+        return self.huey.get_raw(self.id, peek=True) is not EmptyData
 
     def _get(self, preserve=False):
         task_id = self.id

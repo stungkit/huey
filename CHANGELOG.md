@@ -30,6 +30,8 @@ Changelog
   make `RedisExpireStorage.incr()` set the TTL atomically w/ the increment.
 * Re-check for the result after the notify pop times out, so multiple waiters
   on the same result w/ `notify_result=True` all succeed.
+* Peek instead of pop in `Result.is_ready()` so a subsequent
+  `get(preserve=True)` keeps the value in the result store.
 
 [View commits](https://github.com/coleifer/huey/compare/3.3.4...master)
 

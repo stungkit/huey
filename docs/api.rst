@@ -824,6 +824,9 @@ Huey object
 
         :param task: either a task instance, a task ID, a Result, or a Task class.
 
+        A task ID only reflects revocation via :py:meth:`~Huey.revoke_by_id`.
+        Class-level revocation requires a task instance, Result or task class.
+
         This method should rarely need to be called directly. Typically you
         should rather use the ``is_revoked`` method on the object that is being
         revoked, for example:
