@@ -827,14 +827,15 @@ class SqliteStorage(BaseSqlStorage):
     table_task = ('create table if not exists task ('
                   'id integer not null primary key, queue text not null, '
                   'data blob not null, priority real not null default 0.0)')
-    index_task = ('create index if not exists task_priority_id on task '
-                  '(priority desc, id asc)')
+    index_task = ('create index if not exists task_queue_priority_id on task '
+                  '(queue, priority desc, id)')
+    drop_index_task = 'drop index if exists task_priority_id'  # Old index.
     table_counter = ('create table if not exists counter ('
                      'queue text not null, key text not null, '
                      'value integer not null default 0, '
                      'primary key(queue, key))')
     ddl = [table_kv, table_sched, index_sched, table_task, index_task,
-           table_counter]
+           table_counter, drop_index_task]
 
     def __init__(self, name='huey', filename='huey.db', cache_mb=8,
                  fsync=None, journal_mode='wal', timeout=5, strict_fifo=False,
@@ -880,6 +881,11 @@ class SqliteStorage(BaseSqlStorage):
                  (self.name, self.to_blob(data), priority or 0), commit=True)
 
     def dequeue(self):
+        # Quick check without the full exclusive lock.
+        if not self.sql('select 1 from task where queue = ? limit 1',
+                        (self.name,), results=True):
+            return
+
         with self.db(commit=True) as curs:
             curs.execute('select id, data from task where queue = ? '
                          'order by priority desc, id limit 1', (self.name,))
@@ -915,15 +921,16 @@ class SqliteStorage(BaseSqlStorage):
         with self.db(commit=True) as curs:
             params = (self.name, ts.timestamp())
             curs.execute('select id, data from schedule where '
-                         'queue = ? and timestamp <= ?', params)
+                         'queue = ? and timestamp <= ? order by timestamp, id',
+                         params)
             id_list, data = [], []
             for task_id, task_data in curs.fetchall():
                 id_list.append(task_id)
                 data.append(task_data)
-            if id_list:
-                plist = ','.join('?' * len(id_list))
-                curs.execute('delete from schedule where id IN (%s)' % plist,
-                             id_list)
+            for i in range(0, len(id_list), 500):
+                chunk = id_list[i:i + 500]
+                curs.execute('delete from schedule where id in (%s)' %
+                             ','.join('?' * len(chunk)), chunk)
             return data
 
     def schedule_size(self):

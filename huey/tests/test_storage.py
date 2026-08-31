@@ -2,6 +2,7 @@ import datetime
 import hashlib
 import itertools
 import os
+import random
 import shutil
 import sqlite3
 import threading
@@ -502,6 +503,71 @@ class TestSqliteStorage(StorageTests, BaseTestCase):
         self.assertEqual(self.s._timeout, 3)
         curs = self.s.conn.execute('pragma busy_timeout')
         self.assertEqual(curs.fetchone(), (3000,))
+
+    def test_read_schedule_large(self):
+        n = 5000
+        base = datetime.datetime(2000, 1, 1)
+        order = list(range(n))
+        random.Random(1).shuffle(order)
+        for i in order:
+            self.s.add_to_schedule(b'%d' % i,
+                                   base + datetime.timedelta(seconds=i))
+        self.assertEqual(self.s.schedule_size(), n)
+        sched = self.s.read_schedule(base + datetime.timedelta(seconds=n))
+        self.assertEqual(sched, [b'%d' % i for i in range(n)])
+        self.assertEqual(self.s.schedule_size(), 0)
+
+    def test_shared_file_queues(self):
+        other = SqliteHuey(name='other', filename='huey_storage.db',
+                           timeout=3).storage
+        try:
+            self.s.enqueue(b'a1')
+            other.enqueue(b'b1', priority=5)
+            self.s.enqueue(b'a2', priority=3)
+            other.enqueue(b'b2')
+            self.assertEqual(self.s.queue_size(), 2)
+            self.assertEqual(other.queue_size(), 2)
+            self.assertEqual(self.s.enqueued_items(), [b'a2', b'a1'])
+            self.assertEqual(other.enqueued_items(), [b'b1', b'b2'])
+            self.assertEqual(self.s.dequeue(), b'a2')
+            self.assertEqual(other.dequeue(), b'b1')
+            self.assertEqual(self.s.dequeue(), b'a1')
+            self.assertTrue(self.s.dequeue() is None)
+            self.assertEqual(other.queue_size(), 1)
+            other.flush_queue()
+            self.assertTrue(other.dequeue() is None)
+        finally:
+            other.close()
+
+    def test_dequeue_multithreaded(self):
+        nthreads, ntasks = 8, 50
+        for i in range(nthreads * ntasks):
+            self.s.enqueue(b'%d' % i)
+
+        out_q = Queue()
+
+        def dequeue_tasks():
+            while True:
+                data = self.s.dequeue()
+                if data is None:
+                    break
+                out_q.put(int(data))
+
+        threads = [threading.Thread(target=dequeue_tasks)
+                   for _ in range(nthreads)]
+        for t in threads: t.start()
+        for t in threads: t.join(timeout=10.)
+
+        self.assertEqual(self.s.queue_size(), 0)
+        seen = sorted(out_q.get() for _ in range(out_q.qsize()))
+        self.assertEqual(seen, list(range(nthreads * ntasks)))
+
+    def test_task_index(self):
+        curs = self.s.conn.execute('select name from sqlite_master where '
+                                   'type = ? and tbl_name = ?',
+                                   ('index', 'task'))
+        self.assertEqual([r[0] for r in curs.fetchall()],
+                         ['task_queue_priority_id'])
 
 
 @unittest.skipIf(cysqlite is None, 'requires cysqlite')

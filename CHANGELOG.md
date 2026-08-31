@@ -34,6 +34,15 @@ Changelog
   on the same result w/ `notify_result=True` all succeed.
 * Peek instead of pop in `Result.is_ready()` so a subsequent
   `get(preserve=True)` keeps the value in the result store.
+* Skip the exclusive lock in `SqliteStorage.dequeue()` when the queue is
+  empty, so idle consumers no longer block producers and the scheduler.
+* Batch the `SqliteStorage.read_schedule()` delete to avoid sqlite's
+  parameter limit when many tasks come due at once. Same fix in `SqlHuey`.
+* Order `SqliteStorage.read_schedule()` and `SqlHuey.read_schedule()` by
+  `(timestamp, id)`, matching `PostgresStorage`.
+* Add `queue` to the sqlite task index (`task_queue_priority_id`) so queues
+  sharing a file no longer scan each other's rows. The old `task_priority_id`
+  index is dropped when the schema is initialized.
 
 [View commits](https://github.com/coleifer/huey/compare/3.3.4...master)
 

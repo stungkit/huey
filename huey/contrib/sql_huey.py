@@ -162,6 +162,7 @@ class SqlStorage(BaseStorage):
         self.check_conn()
         query = (self.schedule(self.Schedule.id, self.Schedule.data)
                  .where(self.Schedule.timestamp <= timestamp)
+                 .order_by(self.Schedule.timestamp, self.Schedule.id)
                  .tuples())
         if self.for_update:
             query = query.for_update(self.for_update)
@@ -172,10 +173,11 @@ class SqlStorage(BaseStorage):
                 return []
 
             id_list, data = zip(*results)
-            (self.Schedule
-             .delete()
-             .where(self.Schedule.id.in_(id_list))
-             .execute())
+            for chunk in chunked(id_list, 500):
+                (self.Schedule
+                 .delete()
+                 .where(self.Schedule.id.in_(chunk))
+                 .execute())
 
             return list(data)
 
