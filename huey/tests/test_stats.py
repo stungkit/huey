@@ -1,4 +1,5 @@
 import os
+import threading
 import time
 import unittest
 import warnings
@@ -75,6 +76,30 @@ class TestResolveDb(StatsTestCase):
                           peewee.DatabaseProxy())
 
 
+class TestStatsShutdown(StatsTestCase):
+    def test_close_drains_what_the_writer_left_behind(self):
+        # Real trigger: the writer takes a batch, more rows arrive while it is
+        # writing, and the stop flag is set before it finishes. It re-checks
+        # the flag before flushing again and exits, stranding the tail. That
+        # state is reproduced here by stopping the writer with rows buffered.
+        stats = self.get_stats(flush_interval=60)
+        stats._stop.set()
+        stats._wake.set()
+        stats._writer.join(5)
+        self.assertFalse(stats._writer.is_alive())
+
+        for _ in range(3):
+            self.huey._emit(S.SIGNAL_ENQUEUED, self.task_a.s())
+        self.assertEqual(len(stats._buf), 3)
+        self.assertEqual(HueyEvent.select().count(), 0)
+
+        stats._stop.clear()          # close() is a no-op once stop is set
+        stats.close()
+
+        self.assertEqual(stats._buf, [])
+        self.assertEqual(HueyEvent.select().count(), 3)
+
+
 class TestStatsFlush(StatsTestCase):
     def test_inflight_collapse(self):
         stats = self.get_stats(flush_interval=60)
@@ -113,6 +138,26 @@ class TestStatsFlush(StatsTestCase):
                     .where(HueyEvent.signal != S.SIGNAL_EXECUTING))
         self.assertEqual(sorted(rows), sorted(signals))
         self.assertTrue(all(d is not None for d in rows.values()))
+
+    def test_unrepresentable_args_still_record_the_event(self):
+        stats = self.get_stats(flush_interval=60, capture_args=True)
+
+        class Weird(object):
+            def __repr__(self):
+                raise RuntimeError('repr exploded')
+
+        @self.huey.task()
+        def takes_arg(x):
+            pass
+
+        self.huey._emit(S.SIGNAL_EXECUTING, takes_arg.s(Weird()))
+        self.huey._emit(S.SIGNAL_COMPLETE, takes_arg.s(1))
+        stats._flush()
+
+        rows = {e.signal: e.args for e in HueyEvent.select()}
+        self.assertEqual(sorted(rows), [S.SIGNAL_COMPLETE, S.SIGNAL_EXECUTING])
+        self.assertEqual(rows[S.SIGNAL_EXECUTING], '<unrepresentable>')
+        self.assertEqual(rows[S.SIGNAL_COMPLETE], '(1,) {}')
 
     def test_error_then_retry_duration_attributed_once(self):
         stats = self.get_stats(flush_interval=60)
@@ -244,6 +289,30 @@ class TestSearchEvents(StatsTestCase):
                          expected)
         self.assertEqual([r['signal'] for r in stats.recent_events()],
                          expected)
+
+    def test_search_treats_wildcards_literally(self):
+        # A user typing "%" or "a_b" into the search box means those
+        # characters, not LIKE wildcards.
+        stats = self.get_stats(flush_interval=60)
+        rows = [{'ts': 100.0 + i, 'queue': self.huey.name, 'task_id': 'id%s' % i,
+                 'task': task, 'signal': S.SIGNAL_ERROR, 'duration': None,
+                 'error': error, 'args': None}
+                for i, (task, error) in enumerate((
+                    ('app.alpha', None),
+                    ('app.pct', 'failed at 100% cpu'),
+                    ('app.under', 'a_b mismatch')))]
+        HueyEvent.insert_many(rows).execute()
+
+        self.assertEqual(stats.search_events(q='%')[0], 1)
+        self.assertEqual(stats.search_events(q='_')[0], 1)
+        self.assertEqual(stats.search_events(q='100%')[0], 1)
+        self.assertEqual(stats.search_events(q='a_b')[0], 1)
+        self.assertEqual(stats.search_events(q='a_pha')[0], 0)
+        self.assertEqual(stats.search_events(q='alpha')[0], 1)
+        self.assertEqual(stats.search_events(q='ALPHA')[0], 1)
+        self.assertEqual(stats.search_events(q='\\')[0], 0)
+        self.assertEqual(stats.search_events(q="';drop table huey_event;--")[0], 0)
+        self.assertEqual(stats.search_events()[0], 3)   # table intact
 
     def test_filter_options(self):
         stats = self.setup_events()

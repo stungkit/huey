@@ -148,8 +148,8 @@ class HueyStats(object):
                 'duration': duration,
                 'error': repr(exc)[:1000] if (signal == S.SIGNAL_ERROR and exc)
                     else None,
-                'args': ('%r %r' % (task.args, task.kwargs))[:400]
-                    if self.capture_args else None}
+                'args': self._format_args(task) if self.capture_args
+                    else None}
             with self._lock:
                 self._buf.append(row)
                 pending = len(self._buf)
@@ -157,6 +157,13 @@ class HueyStats(object):
                 self._wake.set()
         except Exception:
             pass
+
+    def _format_args(self, task):
+        # A task argument whose repr() raises must not cost us the event.
+        try:
+            return ('%r %r' % (task.args, task.kwargs))[:400]
+        except Exception:
+            return '<unrepresentable>'
 
     def _writer_loop(self):
         while not self._stop.is_set():
@@ -229,6 +236,10 @@ class HueyStats(object):
         self._wake.set()
         if self._writer is not None:
             self._writer.join(timeout=2)
+        # Rows appended while the writer was inside its last flush are still
+        # buffered: it re-checks the stop flag before flushing again, and
+        # exits. Drain them here rather than lose the tail of every process.
+        self._flush()
 
     def _events(self):
         return HueyEvent.select().where(HueyEvent.queue == self.name)
@@ -266,10 +277,9 @@ class HueyStats(object):
         if task:
             query = query.where(HueyEvent.task == task)
         if q:
-            term = '%%%s%%' % q
-            query = query.where((HueyEvent.task_id ** term) |
-                                (HueyEvent.task ** term) |
-                                (HueyEvent.error ** term))
+            query = query.where(HueyEvent.task_id.contains(q) |
+                                HueyEvent.task.contains(q) |
+                                HueyEvent.error.contains(q))
         total = query.count()
         rows = (query.order_by(HueyEvent.ts.desc(), HueyEvent.id.desc())
                 .limit(limit).offset(offset).dicts())
