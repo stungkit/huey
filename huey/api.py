@@ -388,8 +388,9 @@ class Huey(object):
         return self.storage.put_data(key, self.serializer.serialize(data),
                                      is_result=True)
 
-    def put_if_empty(self, key, data):
-        return self.storage.put_if_empty(key, self.serializer.serialize(data))
+    def put_if_empty(self, key, data, ttl=None):
+        return self.storage.put_if_empty(key, self.serializer.serialize(data),
+                                         ttl)
 
     def get_raw(self, key, peek=False):
         if peek:
@@ -676,18 +677,17 @@ class Huey(object):
     def restore_by_id(self, id):
         return self.restore(Task(id=id))
 
-    def _check_revoked(self, revoke_id, timestamp=None, peek=True):
+    def _check_revoked(self, data, timestamp=None, peek=True):
         """
-        Checks if a task is revoked, returns a 2-tuple indicating:
+        Given raw revocation data, returns a 2-tuple indicating:
 
         1. Is task revoked?
         2. Should task be restored?
         """
-        res = self.get(revoke_id, peek=True)
-        if res is None:
+        if data is EmptyData:
             return False, False
 
-        revoke_until, revoke_once = res
+        revoke_until, revoke_once = self.serializer.deserialize(data)
         if revoke_until is not None and timestamp is None:
             timestamp = self._get_timestamp()
 
@@ -706,8 +706,8 @@ class Huey(object):
         if isinstance(task, TaskWrapper):
             task = task.task_class
         if inspect.isclass(task) and issubclass(task, Task):
-            key = self._task_key(task, 'rt')
-            is_revoked, can_restore = self._check_revoked(key, timestamp, peek)
+            data = self.storage.peek_data(self._task_key(task, 'rt'))
+            is_revoked, can_restore = self._check_revoked(data, timestamp, peek)
             if can_restore:
                 self.restore_all(task)
             return is_revoked
@@ -718,12 +718,18 @@ class Huey(object):
         if by_id:
             task = Task(id=task)
 
-        key = task.revoke_id
-        is_revoked, can_restore = self._check_revoked(key, timestamp, peek)
+        rt_key = self._task_key(type(task), 'rt')
+        keys = [task.revoke_id] if by_id else [task.revoke_id, rt_key]
+        data = self.storage.peek_many(keys)
+        is_revoked, can_restore = self._check_revoked(
+            data.get(task.revoke_id, EmptyData), timestamp, peek)
         if can_restore:
             self.restore(task)
         if not is_revoked and not by_id:
-            is_revoked = self.is_revoked(type(task), timestamp, peek)
+            is_revoked, can_restore = self._check_revoked(
+                data.get(rt_key, EmptyData), timestamp, peek)
+            if can_restore:
+                self.restore_all(type(task))
 
         return is_revoked
 
@@ -786,8 +792,8 @@ class Huey(object):
     def flush(self):
         self.storage.flush_all()
 
-    def lock_task(self, lock_name):
-        return TaskLock(self, lock_name)
+    def lock_task(self, lock_name, ttl=None):
+        return TaskLock(self, lock_name, ttl)
 
     def is_locked(self, lock_name):
         return TaskLock(self, lock_name).is_locked()
@@ -1096,9 +1102,10 @@ class TaskLock(object):
     Utilize the Storage key/value APIs to implement simple locking. For more
     details see :py:meth:`Huey.lock_task`.
     """
-    def __init__(self, huey, name):
+    def __init__(self, huey, name, ttl=None):
         self._huey = huey
         self._name = name
+        self._ttl = ttl
         self._key = '%s.lock.%s' % (self._huey.name, self._name)
         self._huey._locks.add(self._key)
 
@@ -1121,7 +1128,7 @@ class TaskLock(object):
         self._huey.delete(self._key)
 
     def acquire(self):
-        if not self._huey.put_if_empty(self._key, '1'):
+        if not self._huey.put_if_empty(self._key, '1', self._ttl):
             raise TaskLockedException('unable to acquire lock %s' % self._name)
         return True
 

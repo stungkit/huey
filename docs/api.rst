@@ -887,9 +887,12 @@ Huey object
             methods). If you intend to access the task result multiple times,
             you must specify ``preserve=True`` when calling these methods.
 
-    .. py:method:: lock_task(lock_name)
+    .. py:method:: lock_task(lock_name, ttl=None)
 
         :param str lock_name: Name to use for the lock.
+        :param int ttl: Seconds after which the lock expires on its own, so a
+            killed worker cannot hold it forever. Supported by the memory and
+            redis storages, others raise ``NotImplementedError``.
         :returns: :py:class:`TaskLock` instance, which can be used as a
             decorator or context-manager.
 
@@ -1072,10 +1075,12 @@ Huey object
         Remove a value from the result-store at the given key. Useful for
         cleaning up manually-stored data created with :py:meth:`~Huey.put`.
 
-    .. py:method:: put_if_empty(key, value)
+    .. py:method:: put_if_empty(key, value, ttl=None)
 
         :param key: key to store data under.
         :param value: arbitrary data to store.
+        :param int ttl: seconds until the key expires. Supported by the memory
+            and redis storages, others raise ``NotImplementedError``.
         :returns: boolean indicating whether the value was stored. Returns
             ``False`` if the key already exists.
 
@@ -1543,7 +1548,7 @@ Huey object
     Convenience function for a task that should run daily, at midnight.
 
 
-.. py:class:: TaskLock(huey, name)
+.. py:class:: TaskLock(huey, name, ttl=None)
 
     This class should not be instantiated directly, but is instead returned by
     :py:meth:`Huey.lock_task`. This object implements a context-manager or

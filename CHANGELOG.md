@@ -56,6 +56,10 @@ Changelog
   `Huey.scheduled()`, logging the error, as `read_schedule()` already does.
 * Add monitoring docs.
 * Add `huey[stats]` extra for peewee.
+* Add `peek_many()` to the storage API. Revocation checks now fetch the task
+  and task-class keys in one round trip.
+* Add `ttl` to `lock_task()` and `put_if_empty()` so locks expire on their own.
+  Supported by memory and redis storages, others raise `NotImplementedError`.
 
 [View commits](https://github.com/coleifer/huey/compare/3.3.4...master)
 

@@ -91,6 +91,15 @@ class ValkeyGlideStorage(RedisStorage):
         exists, val = getattr(self.conn, 'exec')(tx, False)
         return EmptyData if not exists else val
 
+    def peek_many(self, keys):
+        values = self.conn.hmget(self.result_key, keys)
+        return {k: v for k, v in zip(keys, values) if v is not None}
+
+    def put_if_empty(self, key, value, ttl=None):
+        if ttl is not None:
+            raise NotImplementedError('ttl is not supported by this storage.')
+        return self.conn.hsetnx(self.result_key, key, value)
+
     def pop_data(self, key):
         tx = Transaction()
         tx.hexists(self.result_key, key)

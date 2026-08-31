@@ -18,6 +18,7 @@ from huey.exceptions import RateLimitExceeded
 from huey.exceptions import ResultTimeout
 from huey.exceptions import RetryTask
 from huey.exceptions import TaskException
+from huey.exceptions import TaskLockedException
 from huey.exceptions import TaskTimeout
 from huey.serializer import SignedSerializer
 from huey.tests.base import BaseTestCase
@@ -2620,6 +2621,17 @@ class TestTaskLocking(BaseTestCase):
         # Task failed due to lock, will be retried, which succeeds now that the
         # lock is released.
         self.assertEqual(self.execute_next(), 6)
+
+    def test_task_locking_ttl(self):
+        with self.huey.lock_task('lock_t', ttl=1):
+            self.assertTrue(self.huey.is_locked('lock_t'))
+            self.assertRaises(TaskLockedException,
+                              self.huey.lock_task('lock_t').acquire)
+            time.sleep(1.1)
+            self.assertFalse(self.huey.is_locked('lock_t'))
+            with self.huey.lock_task('lock_t'):
+                self.assertTrue(self.huey.is_locked('lock_t'))
+        self.assertFalse(self.huey.is_locked('lock_t'))
 
 
 class TestRateLimit(BaseTestCase):

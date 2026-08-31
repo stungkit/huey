@@ -949,6 +949,10 @@ If a second invocation occurs and the lock cannot be acquired, then a special
 :py:class:`TaskLockedException` is raised and the task will not be executed.
 If the task is configured to be retried, then it will be retried normally.
 
+Pass ``ttl`` (seconds) so a lock left behind by a killed worker expires on its
+own. The memory and redis storages support it, others raise
+``NotImplementedError``.
+
 Examples:
 
 .. code-block:: python

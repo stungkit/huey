@@ -56,11 +56,34 @@ requires_redis = unittest.skipIf(REDIS_VERSION == 0, 'requires redis server')
 
 class StorageTests(object):
     destructive_reads = True
+    supports_ttl = True
 
     def setUp(self):
         super(StorageTests, self).setUp()
         self.s = self.huey.storage
         self.s.flush_all()
+
+    def test_peek_many(self):
+        self.s.put_data('k1', b'v1')
+        self.s.put_data('k2', b'v2')
+        self.assertEqual(self.s.peek_many(['k1', 'kx', 'k2']),
+                         {'k1': b'v1', 'k2': b'v2'})
+        self.assertEqual(self.s.peek_many(['kx']), {})
+
+    def test_put_if_empty_ttl(self):
+        if not self.supports_ttl:
+            self.assertRaises(NotImplementedError, self.s.put_if_empty,
+                              b'k1', b'v1', 1)
+            return
+
+        self.assertTrue(self.s.put_if_empty(b'k1', b'v1', ttl=1))
+        self.assertFalse(self.s.put_if_empty(b'k1', b'v2', ttl=1))
+        self.assertEqual(self.s.peek_data(b'k1'), b'v1')
+        time.sleep(1.1)
+        self.assertFalse(self.s.has_data_for_key(b'k1'))
+        self.assertTrue(self.s.put_if_empty(b'k1', b'v3'))
+        self.assertFalse(self.s.put_if_empty(b'k1', b'v4'))
+        self.assertEqual(self.s.peek_data(b'k1'), b'v3')
 
     def tearDown(self):
         super(StorageTests, self).tearDown()
@@ -480,6 +503,8 @@ class TestRedisStorageOffline(BaseTestCase):
 
 
 class TestSqliteStorage(StorageTests, BaseTestCase):
+    supports_ttl = False
+
     def tearDown(self):
         super(TestSqliteStorage, self).tearDown()
         if os.path.exists('huey_storage.db'):
@@ -572,6 +597,8 @@ class TestSqliteStorage(StorageTests, BaseTestCase):
 
 @unittest.skipIf(cysqlite is None, 'requires cysqlite')
 class TestCySqliteStorage(StorageTests, BaseTestCase):
+    supports_ttl = False
+
     def tearDown(self):
         super(TestCySqliteStorage, self).tearDown()
         if os.path.exists('huey_storage.db'):
@@ -625,11 +652,13 @@ class TestFileStorageMethods(StorageTests, BaseTestCase):
     path = '/tmp/test-huey-storage'
     result_path = '/tmp/test-huey-storage/results'
     queue_path = '/tmp/test-huey-storage/queue'
+    supports_ttl = False
 
     def tearDown(self):
         super(TestFileStorageMethods, self).tearDown()
-        if os.path.exists(self.path):
-            shutil.rmtree(self.path)
+        for path in (self.path, self.path + '-other'):
+            if os.path.exists(path):
+                shutil.rmtree(path)
 
     def test_float_priority(self):
         # Fractional priorities are truncated rather than raising.
@@ -755,5 +784,7 @@ except ImportError:
 
 @unittest.skipIf(ValkeyGlideHuey is None, 'valkey-glide-sync not installed')
 class TestValkeyGlideStorage(StorageTests, BaseTestCase):
+    supports_ttl = False
+
     def get_huey(self):
         return ValkeyGlideHuey(utc=False)
