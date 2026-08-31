@@ -6,7 +6,9 @@
 
 {% block breadcrumbs %}
 <div class="breadcrumbs">
-  <a href="{% url 'admin:index' %}">Home</a> &rsaquo; Huey
+  <a href="{% url 'admin:index' %}">Home</a>
+  &rsaquo; <a href="{% url 'admin:app_list' app_label='hueystats' %}">Huey</a>
+  &rsaquo; Dashboard
 </div>
 {% endblock %}
 

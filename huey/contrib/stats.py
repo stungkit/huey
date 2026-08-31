@@ -249,8 +249,9 @@ class HueyStats(object):
                 'error': row['error'], 'args': row.get('args')}
 
     def recent_events(self, limit=50):
-        rows = (self._events().order_by(HueyEvent.id.desc()).limit(limit)
-                .dicts())
+        rows = (self._events().order_by(HueyEvent.ts.desc(),
+                                        HueyEvent.id.desc())
+                .limit(limit).dicts())
         return [self._format_event(r) for r in rows]
 
     def search_events(self, signal=None, task=None, q=None, limit=100,
@@ -270,7 +271,7 @@ class HueyStats(object):
                                 (HueyEvent.task ** term) |
                                 (HueyEvent.error ** term))
         total = query.count()
-        rows = (query.order_by(HueyEvent.id.desc())
+        rows = (query.order_by(HueyEvent.ts.desc(), HueyEvent.id.desc())
                 .limit(limit).offset(offset).dicts())
         return total, [self._format_event(r, '%Y-%m-%d %H:%M:%S')
                        for r in rows]

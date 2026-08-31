@@ -15,9 +15,10 @@
 
 {% block breadcrumbs %}
 <div class="breadcrumbs">
-  <a href="{% url 'admin:index' %}">Home</a> &rsaquo;
-  <a href="{% url 'admin:hueystats_hueydashboard_changelist' %}">Huey</a> &rsaquo;
-  Events
+  <a href="{% url 'admin:index' %}">Home</a>
+  &rsaquo; <a href="{% url 'admin:app_list' app_label='hueystats' %}">Huey</a>
+  &rsaquo; <a href="{% url 'admin:hueystats_hueydashboard_changelist' %}">Dashboard</a>
+  &rsaquo; Events
 </div>
 {% endblock %}
 

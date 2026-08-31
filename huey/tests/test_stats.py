@@ -225,6 +225,26 @@ class TestSearchEvents(StatsTestCase):
         ids = [r['ts'] for r in page1] + [r['ts'] for r in page2]
         self.assertEqual(len(set(ids)), len(ids))  # no overlap
 
+    def test_ordered_by_event_time_not_insert_order(self):
+        # The producer records "enqueued" and the consumer records the rest,
+        # each with its own flush buffer, so insert order is a race. Ordering
+        # by row id put "enqueued" above the "complete" that followed it.
+        stats = self.get_stats(flush_interval=60)
+        now = time.time()
+        rows = [{'ts': now + offset, 'queue': self.huey.name, 'task_id': 'abc',
+                 'task': 'x.y', 'signal': signal, 'duration': None,
+                 'error': None, 'args': None}
+                for offset, signal in ((0.2, S.SIGNAL_EXECUTING),
+                                       (0.4, S.SIGNAL_COMPLETE),
+                                       (0.0, S.SIGNAL_ENQUEUED))]
+        HueyEvent.insert_many(rows).execute()
+
+        expected = [S.SIGNAL_COMPLETE, S.SIGNAL_EXECUTING, S.SIGNAL_ENQUEUED]
+        self.assertEqual([r['signal'] for r in stats.search_events()[1]],
+                         expected)
+        self.assertEqual([r['signal'] for r in stats.recent_events()],
+                         expected)
+
     def test_filter_options(self):
         stats = self.setup_events()
         self.assertEqual(stats.event_signals(),
