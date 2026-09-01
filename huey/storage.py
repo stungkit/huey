@@ -275,6 +275,7 @@ class BaseStorage(object):
         Non-destructively read all the key/value pairs from the data-store.
 
         :return: Dictionary mapping all key/value pairs in the data-store.
+            Keys written by huey are returned as unicode strings.
         """
         raise NotImplementedError
 
@@ -675,7 +676,8 @@ class RedisStorage(BaseStorage):
         return self.conn.hlen(self.result_key)
 
     def result_items(self):
-        return self.conn.hgetall(self.result_key)
+        return {key.decode('utf8'): value for key, value
+                in self.conn.hgetall(self.result_key).items()}
 
     def flush_results(self):
         self.conn.delete(self.result_key)
@@ -754,7 +756,7 @@ class RedisExpireStorage(RedisStorage):
         if keys:
             pfx_len = len(self.result_prefix)
             for key, value in zip(keys, self.conn.mget(keys)):
-                accum[key[pfx_len:]] = value
+                accum[key[pfx_len:].decode('utf8')] = value
         return accum
 
     def _counter_keys(self):
@@ -1694,7 +1696,8 @@ class FileStorage(BaseStorage):
                 path = os.path.join(root, filename)
                 with open(path, 'rb') as fh:
                     key, value = self._unpack_result(fh.read())
-                accum[key] = value
+                if key is not None:
+                    accum[key.decode('utf8')] = value
         return accum
 
     def flush_results(self):

@@ -130,19 +130,25 @@ class TestQueue(BaseTestCase):
         self.assertEqual(r(), 3)
         self.assertTrue(r.is_ready())  # Invert order of checks - OK.
 
-    def test_result_readiness_preserve(self):
+    def test_result_readiness_reads_result(self):
         @self.huey.task()
         def task_a(n):
             return n + 1
 
         r = task_a(1)
         self.assertEqual(self.execute_next(), 2)
+
+        # is_ready() reads the result into the handle, so the caller is
+        # guaranteed to be able to read it.
         self.assertTrue(r.is_ready())
-        self.assertEqual(self.huey.result_count(), 1)
-        self.assertEqual(r.get(preserve=True), 2)
-        self.assertEqual(self.huey.result_count(), 1)
-        self.assertEqual(self.huey.result(r.id), 2)
         self.assertEqual(self.huey.result_count(), 0)
+        self.assertEqual(r.get(preserve=True), 2)
+        self.assertEqual(r(), 2)
+
+        # Another handle for the same task does not see a result it cannot
+        # read.
+        r2 = Result(self.huey, r.task)
+        self.assertFalse(r2.is_ready())
 
     def test_scheduling(self):
         @self.huey.task()

@@ -79,6 +79,8 @@ API
         ``huey_event`` and ``huey_inflight`` tables live.
     :param int retention_hours: how long to keep events, in hours (default 48).
     :param int max_events: maximum events retained per queue (default 2000).
+    :param int inflight_hours: how long a task may remain in-flight before its
+        row is presumed orphaned and pruned, in hours (default 6).
     :param bool capture_args: also store a truncated repr of each task's args
         and kwargs (default False).
     :param bool create_tables: create the tables if they do not exist

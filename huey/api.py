@@ -1278,9 +1278,7 @@ class Result(object):
         return self.get(*args, **kwargs)
 
     def is_ready(self):
-        if self._result is not EmptyData:
-            return True
-        return self.huey.get_raw(self.id, peek=True) is not EmptyData
+        return self._get() is not EmptyData
 
     def _get(self, preserve=False):
         task_id = self.id

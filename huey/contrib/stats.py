@@ -68,12 +68,13 @@ def _resolve_db(db):
 
 class HueyStats(object):
     def __init__(self, huey, db, retention_hours=48, max_events=2000,
-                 capture_args=False, create_tables=True, flush_interval=0.5,
-                 flush_max=200):
+                 inflight_hours=6, capture_args=False, create_tables=True,
+                 flush_interval=0.5, flush_max=200):
         self.huey = huey
         self.name = huey.name
         self.db = _resolve_db(db)
         self.retention = retention_hours * 3600
+        self.inflight_retention = inflight_hours * 3600
         self.max_events = max_events
         self.capture_args = capture_args
         self._flush_interval = flush_interval
@@ -156,7 +157,7 @@ class HueyStats(object):
             if pending >= self._flush_max:
                 self._wake.set()
         except Exception:
-            pass
+            logger.exception('stats event dropped.')
 
     def _format_args(self, task):
         # A task argument whose repr() raises must not cost us the event.
@@ -215,15 +216,18 @@ class HueyStats(object):
                 (HueyEvent.delete()
                  .where(HueyEvent.queue == self.name,
                         HueyEvent.ts < now - self.retention).execute())
-                mx = (HueyEvent.select(peewee.fn.MAX(HueyEvent.id))
-                      .where(HueyEvent.queue == self.name).scalar())
-                if mx:
+                cutoff = (HueyEvent.select(HueyEvent.id)
+                          .where(HueyEvent.queue == self.name)
+                          .order_by(HueyEvent.id.desc())
+                          .limit(1).offset(self.max_events).scalar())
+                if cutoff is not None:
                     (HueyEvent.delete()
                      .where(HueyEvent.queue == self.name,
-                            HueyEvent.id < mx - self.max_events).execute())
+                            HueyEvent.id <= cutoff).execute())
                 (HueyInflight.delete()
                  .where(HueyInflight.queue == self.name,
-                        HueyInflight.started < now - 21600).execute())
+                        HueyInflight.started < now - self.inflight_retention)
+                 .execute())
         except Exception:
             logger.exception('stats prune failed.')
         if len(self._start) > 10000:

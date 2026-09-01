@@ -139,6 +139,12 @@ class TestStatsFlush(StatsTestCase):
         self.assertEqual(sorted(rows), sorted(signals))
         self.assertTrue(all(d is not None for d in rows.values()))
 
+    def test_recorder_failure_logged_not_raised(self):
+        stats = self.get_stats(flush_interval=60)
+        with self.assertLogs('huey.stats', 'ERROR'):
+            stats._on_signal(S.SIGNAL_EXECUTING, None)
+        self.assertEqual(stats._buf, [])
+
     def test_unrepresentable_args_still_record_the_event(self):
         stats = self.get_stats(flush_interval=60, capture_args=True)
 
@@ -171,6 +177,47 @@ class TestStatsFlush(StatsTestCase):
         rows = dict((e.signal, e.duration) for e in HueyEvent.select())
         self.assertTrue(rows[S.SIGNAL_ERROR] is not None)
         self.assertTrue(rows[S.SIGNAL_RETRYING] is None)
+
+
+class TestStatsPrune(StatsTestCase):
+    def record(self, queue, prefix, n):
+        now = time.time()
+        HueyEvent.insert_many([
+            {'ts': now, 'queue': queue, 'task_id': '%s%s' % (prefix, i),
+             'task': 'tests.task_a', 'signal': S.SIGNAL_COMPLETE}
+            for i in range(n)]).execute()
+
+    def prune(self, stats):
+        stats._prune_at = 0
+        stats._maybe_prune()
+
+    def test_max_events_scoped_per_queue(self):
+        # Event ids autoincrement across queues, so a prune based on an id
+        # window would retain far fewer than max_events per queue.
+        stats = self.get_stats(flush_interval=60, max_events=5)
+        self.record(self.huey.name, 'a', 3)
+        self.record('other', 'x', 10)
+        self.record(self.huey.name, 'b', 4)
+        self.prune(stats)
+
+        query = (HueyEvent.select()
+                 .where(HueyEvent.queue == self.huey.name)
+                 .order_by(HueyEvent.id))
+        self.assertEqual([e.task_id for e in query],
+                         ['a2', 'b0', 'b1', 'b2', 'b3'])
+        self.assertEqual(HueyEvent.select()
+                         .where(HueyEvent.queue == 'other').count(), 10)
+
+    def test_inflight_hours(self):
+        stats = self.get_stats(flush_interval=60, inflight_hours=1)
+        now = time.time()
+        HueyInflight.insert_many([
+            {'task_id': 'told', 'queue': self.huey.name, 'task': 't',
+             'started': now - 3700},
+            {'task_id': 'tnew', 'queue': self.huey.name, 'task': 't',
+             'started': now - 60}]).execute()
+        self.prune(stats)
+        self.assertEqual([r.task_id for r in HueyInflight.select()], ['tnew'])
 
 
 class TestDashboardContext(StatsTestCase):

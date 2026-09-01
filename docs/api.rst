@@ -1967,6 +1967,11 @@ Result
         :returns: whether the task result value is available.
         :rtype: bool
 
+        Reads the result into this handle, so a ready result is always
+        readable by the caller. Results are read-once, so another
+        :py:class:`Result` for the same task will not see it, even with
+        ``get(preserve=True)``.
+
     .. py:method:: get(blocking=False, timeout=None, backoff=1.15, max_delay=1.0, revoke_on_timeout=False, preserve=False)
 
         :param bool blocking: whether to block while waiting for task result

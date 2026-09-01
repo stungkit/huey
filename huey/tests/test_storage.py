@@ -5,6 +5,7 @@ import os
 import random
 import shutil
 import sqlite3
+import struct
 import threading
 import time
 import unittest
@@ -69,6 +70,12 @@ class StorageTests(object):
         self.assertEqual(self.s.peek_many(['k1', 'kx', 'k2']),
                          {'k1': b'v1', 'k2': b'v2'})
         self.assertEqual(self.s.peek_many(['kx']), {})
+
+    def test_result_items_str_keys(self):
+        # Task ids are stored as str, and every backend returns them as str.
+        self.s.put_data('k1', b'v1')
+        self.s.put_data('k2', b'v2')
+        self.assertEqual(self.s.result_items(), {'k1': b'v1', 'k2': b'v2'})
 
     def test_put_if_empty_ttl(self):
         if not self.supports_ttl:
@@ -399,9 +406,9 @@ class TestRedisExpireStorage(StorageTests, BaseTestCase):
 
         # Check the result items.
         self.assertEqual(self.s.result_items(), {
-            b'k1': b'v1',
-            b'k3': b'v3',
-            b'k4': b'v4'})
+            'k1': b'v1',
+            'k3': b'v3',
+            'k4': b'v4'})
         self.assertEqual(self.s.result_store_size(), 3)
 
     def test_integration_2(self):
@@ -710,6 +717,17 @@ class TestFileStorageMethods(StorageTests, BaseTestCase):
         s.flush_results()
         self.assertTrue(os.path.exists(self.result_path))
         self.assertEqual(os.listdir(self.result_path), [])
+
+    def test_filesystem_result_items_truncated(self):
+        s = self.huey.storage
+        s.put_data(b'k1', b'v1')
+
+        filename = s.path_for_key(b'k2')
+        os.makedirs(os.path.dirname(filename), exist_ok=True)
+        with open(filename, 'wb') as fh:
+            fh.write(struct.pack('>I', 8) + b'k2')
+
+        self.assertEqual(s.result_items(), {'k1': b'v1'})
 
     def test_fs_multithreaded(self):
         l = threading.Lock()
