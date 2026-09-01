@@ -16,6 +16,9 @@ from huey.consumer import WORKER_TO_ENVIRONMENT
 from huey.consumer_options import ConsumerConfig
 from huey.consumer_options import OptionParserHandler
 from huey.exceptions import TaskException
+from huey.signals import SIGNAL_COMPLETE
+from huey.signals import SIGNAL_ERROR
+from huey.signals import SIGNAL_INTERRUPTED
 from huey.tests.base import BaseTestCase
 from huey.tests.base import slow_test
 
@@ -293,6 +296,81 @@ class TestConsumerShutdown(BaseTestCase):
         self.assertIn('Shutdown timeout', logs.output[0])
         release.set()
         worker_t.join(2)
+
+    @slow_test()
+    def test_notify_interrupted_completing_task(self):
+        release = threading.Event()
+        started = threading.Event()
+
+        @self.huey.task()
+        def block():
+            started.set()
+            release.wait(2)  # Hang out in the task after stop-flag set.
+            return 1337
+
+        signals = []
+        @self.huey.signal()
+        def capture(sig, task, *args, **kwargs):
+            signals.append(sig)
+
+        result = block()
+        consumer = self.huey.create_consumer()
+        _, worker_t = consumer.worker_threads[0]
+        worker_t.start()
+        self.assertTrue(started.wait(2))  # Wait for consumer to start task.
+
+        consumer.stop_flag.set()
+        self.huey.notify_interrupted_tasks()  # Task blocked, fire interrupted.
+        release.set()  # Task exits now.
+        worker_t.join(2)
+        self.assertFalse(worker_t.is_alive())
+
+        self.assertEqual(result(), 1337)
+        self.assertIn(SIGNAL_INTERRUPTED, signals)
+        self.assertIn(SIGNAL_COMPLETE, signals)
+        self.assertNotIn(SIGNAL_ERROR, signals)
+
+    @slow_test()
+    def test_notify_interrupted_pop_race(self):
+        release = threading.Event()
+        started = threading.Event()
+        in_pop = threading.Event()
+        resume_pop = threading.Event()
+
+        class PausingSet(set):
+            def pop(self):
+                in_pop.set()
+                resume_pop.wait(2)
+                return set.pop(self)
+        self.huey._tasks_in_flight = PausingSet()
+
+        @self.huey.task()
+        def block():
+            started.set()
+            release.wait(2)
+
+        block()
+        consumer = self.huey.create_consumer()
+        _, worker_t = consumer.worker_threads[0]
+        worker_t.start()
+        self.assertTrue(started.wait(2))  # Like above, wait for task to start.
+        consumer.stop_flag.set()  # Set stop flag on consumer.
+
+        errors = []
+        def notify():
+            try:
+                self.huey.notify_interrupted_tasks()
+            except BaseException as exc:
+                errors.append(exc)
+        notify_t = threading.Thread(target=notify)
+        notify_t.start()
+        self.assertTrue(in_pop.wait(2))  # Wait for notify thread to start.
+        release.set()  # Let task finish.
+        worker_t.join(2)
+        self.assertFalse(worker_t.is_alive())
+        resume_pop.set()  # Now simulate "cleanup" of notifying interrupted.
+        notify_t.join(2)
+        self.assertEqual(errors, [])
 
     def test_signal_handlers(self):
         consumer = self.huey.create_consumer()

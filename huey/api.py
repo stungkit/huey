@@ -278,7 +278,10 @@ class Huey(object):
 
     def notify_interrupted_tasks(self):
         while self._tasks_in_flight:
-            task = self._tasks_in_flight.pop()
+            try:
+                task = self._tasks_in_flight.pop()
+            except KeyError:
+                break  # Task might have raced and finished.
             self._emit(S.SIGNAL_INTERRUPTED, task)
 
     def signal(self, *signals):
@@ -461,7 +464,9 @@ class Huey(object):
                 with self._timeout_context(task):
                     task_value = task.execute()
             finally:
-                self._tasks_in_flight.remove(task)
+                # discard(), as notify_interrupted_tasks() in the main thread
+                # may have popped the task during a non-graceful shutdown.
+                self._tasks_in_flight.discard(task)
                 duration = time.monotonic() - start
         except TaskTimeout as exc:
             logger.warning('Task %s timed out after %ss.', task.id,
