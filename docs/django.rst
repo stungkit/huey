@@ -445,6 +445,10 @@ The admin index gets a *Huey* section:
   search across task id, task name and error text, and page back through the
   retained history.
 
+Staff users with the ``hueystats.view_hueydashboard`` permission can see both
+pages. The revoke, restore and flush controls require
+``hueystats.change_hueydashboard``.
+
 Options may be provided via a ``HUEY_STATS`` setting:
 
 .. code-block:: python

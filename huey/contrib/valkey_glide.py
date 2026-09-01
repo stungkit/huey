@@ -108,6 +108,9 @@ class ValkeyGlideStorage(RedisStorage):
         exists, val, n = getattr(self.conn, 'exec')(tx, False)
         return EmptyData if not exists else val
 
+    def delete_data(self, key):
+        return self.conn.hdel(self.result_key, [key]) != 0
+
     def flush_queue(self):
         self.conn.delete([self.queue_key])
 

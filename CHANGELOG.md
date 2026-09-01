@@ -83,6 +83,9 @@ Stats:
   the configured cap.
 * Add `inflight_hours` option to stats recorder, replacing the hardcoded 6
   hour in-flight cutoff.
+* Require the `change_hueydashboard` permission for the django admin
+  dashboard's revoke, restore and flush controls. Previously any staff user
+  who could view the dashboard could also flush the queue.
 * Add `huey[stats]` extra which installs ol' peewee.
 
 [View commits](https://github.com/coleifer/huey/compare/3.3.4...master)

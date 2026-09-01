@@ -1,6 +1,7 @@
 from urllib.parse import urlencode
 
 from django.contrib import admin
+from django.contrib.auth import get_permission_codename
 from django.core.exceptions import PermissionDenied
 from django.http import HttpResponseRedirect
 from django.template.response import TemplateResponse
@@ -31,6 +32,10 @@ class HueyDashboardAdmin(admin.ModelAdmin):
     def has_delete_permission(self, request, obj=None):
         return False
 
+    def has_action_permission(self, request):
+        codename = get_permission_codename('change', self.opts)
+        return request.user.has_perm('%s.%s' % (self.opts.app_label, codename))
+
     def get_urls(self):
         wrap = self.admin_site.admin_view
         return [
@@ -47,11 +52,14 @@ class HueyDashboardAdmin(admin.ModelAdmin):
         from huey.contrib.stats import live_counts
         huey = get_huey()
         stats = getattr(huey, '_stats', None)
+        can_act = self.has_action_permission(request)
         if stats is None:
-            return {'enabled': False, 'live': live_counts(huey)}
+            return {'enabled': False, 'live': live_counts(huey),
+                    'can_act': can_act}
         context = dashboard_context(huey, stats, self.list_limit,
                                     self.event_limit, self.throughput_minutes)
         context['enabled'] = True
+        context['can_act'] = can_act
         for row in context['known']:
             if row['stats'] is None:
                 row['stats'] = {'executed': 0, 'completed': 0, 'errors': 0,
@@ -119,7 +127,7 @@ class HueyDashboardAdmin(admin.ModelAdmin):
                                 context)
 
     def action_view(self, request):
-        if not self.has_view_permission(request) or request.method != 'POST':
+        if not self.has_action_permission(request) or request.method != 'POST':
             raise PermissionDenied
         huey = get_huey()
         op = request.POST.get('op')
